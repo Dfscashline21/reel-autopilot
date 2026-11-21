@@ -69,7 +69,12 @@ class Client:
     def schedule(self, platform, account, reel, media_url, when_utc, settings):
         target = {"targetType": platform}
         if platform == "instagram":
-            target.update({"mediaType": "reel", "shareToFeed": True})
+            trial = (settings or {}).get("ig_trial", "off")
+            if trial in ("MANUAL", "SS_PERFORMANCE"):
+                # Trial reels go to non-followers first, so they aren't shared to the feed.
+                target.update({"mediaType": "reel", "trial": {"graduationStrategy": trial}})
+            else:
+                target.update({"mediaType": "reel", "shareToFeed": True})
         elif platform == "tiktok":
             target.update({"privacyLevel": "PUBLIC_TO_EVERYONE", "disabledComments": False,
                            "disabledDuet": False, "disabledStitch": False,

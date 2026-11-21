@@ -187,3 +187,19 @@ def test_adding_a_time_builds_only_the_new_slot():
     assert [r["local_time"] for r in plan] == ["12:00", "15:00", "15:20"]
     assert len({r["file"] for r in plan}) == 3           # no file overwritten
     assert len({r["clip"] for r in plan}) == 3           # no shared footage
+
+
+def test_instagram_trial_reel_setting():
+    from app import blotato
+    sent = []
+    c = blotato.Client("k")
+    c._req = lambda m, p, **kw: (sent.append(kw["json"]), {"postSubmissionId": "x"})[1]
+    reel = {"hook": "H", "caption": "C", "tag": ""}
+    when = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    s = dict(store.settings())
+    c.schedule("instagram", {"id": "1"}, reel, "u", when, s)
+    assert sent[-1]["post"]["target"] == {"targetType": "instagram", "mediaType": "reel", "shareToFeed": True}
+    s["ig_trial"] = "SS_PERFORMANCE"
+    c.schedule("instagram", {"id": "1"}, reel, "u", when, s)
+    t = sent[-1]["post"]["target"]
+    assert t["trial"] == {"graduationStrategy": "SS_PERFORMANCE"} and "shareToFeed" not in t

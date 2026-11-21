@@ -205,7 +205,9 @@ async def setup_platforms(request: Request):
     accts = store.settings().get("accounts") or {}
     for p in accts:
         accts[p]["enabled"] = form.get(f"on_{p}") == "1"
-    store.save_settings(accounts=accts)
+    trial = form.get("ig_trial", "off")
+    store.save_settings(accounts=accts,
+                        ig_trial=trial if trial in ("off", "MANUAL", "SS_PERFORMANCE") else "off")
     return back("blotato")
 
 

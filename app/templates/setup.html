@@ -24,6 +24,15 @@
         {{ names[p] }}{% if a.username %} · {{ a.username }}{% endif %}</label>
     {% endfor %}
     </div>
+    {% if s.accounts.instagram %}
+    <label for="ig_trial">Instagram reels</label>
+    <select id="ig_trial" name="ig_trial">
+      <option value="off" {% if s.ig_trial == 'off' %}selected{% endif %}>Regular reels (followers and feed)</option>
+      <option value="SS_PERFORMANCE" {% if s.ig_trial == 'SS_PERFORMANCE' %}selected{% endif %}>Trial reels: Instagram shares with followers if they do well</option>
+      <option value="MANUAL" {% if s.ig_trial == 'MANUAL' %}selected{% endif %}>Trial reels: I share with followers myself</option>
+    </select>
+    <p class="hint">Trial reels are shown to non-followers first. Instagram only offers them to some accounts; if yours doesn't qualify, those posts will fail and show in Activity.</p>
+    {% endif %}
     <button class="quiet">Save platforms</button>
   </form>
   {% elif s.blotato_api_key %}
