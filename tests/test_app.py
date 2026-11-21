@@ -101,8 +101,8 @@ def test_build_day_and_schedule_once():
     now = datetime(2030, 1, 7, 9, 0, tzinfo=tz)
     items = builder.build_day(day, store.settings(), now=now)
     assert len(items) == 2
-    assert len({i["clip"] for i in items}) == 2                 # no shared footage
-    assert {i["hook"] for i in items} == {"First hook", "Second hook"}
+    assert len({i["clip"] for i in items}) == 2                 # different pieces of the video
+    assert {i["hook"] for i in items} == {"First hook"}         # one set: same hook
     assert items[0]["platforms"] == {"instagram": {"status": "pending"}, "youtube": {"status": "pending"}}
     assert items[1]["platforms"]["youtube"]["status"] == "off"  # YouTube cap of 1
     assert (builder.batch_dir(day) / "reel_01.mp4").exists()
@@ -203,3 +203,35 @@ def test_instagram_trial_reel_setting():
     c.schedule("instagram", {"id": "1"}, reel, "u", when, s)
     t = sent[-1]["post"]["target"]
     assert t["trial"] == {"graduationStrategy": "SS_PERFORMANCE"} and "shareToFeed" not in t
+
+
+def test_sets_share_hook_and_video_and_videos_rest_7_days():
+    for c in ("clipA", "clipB", "clipC"):
+        make_clip(c, 60)
+    store.write_json("hooks.json", [{"hook": "H1", "caption": "c1"}, {"hook": "H2", "caption": "c2"},
+                                    {"hook": "H3", "caption": "c3"}])
+    store.save_settings(times=["07:00", "07:02", "07:04", "07:06", "07:08", "07:10"],
+                        reels_per_set=3, video_rest_days=7)
+    tz = ZoneInfo(TZ)
+    d1 = date(2030, 2, 1)
+    items = builder.build_day(d1, store.settings(), now=datetime(2030, 2, 1, 0, 0, tzinfo=tz))
+    assert len(items) == 6
+    a, b = items[:3], items[3:]
+    for grp in (a, b):
+        assert len({r["hook"] for r in grp}) == 1 and len({r["caption"] for r in grp}) == 1
+        assert len({r["clip"].split("@")[0] for r in grp}) == 1          # one video per set
+        assert len({r["clip"] for r in grp}) == 3                        # three different pieces
+    assert a[0]["hook"] == "H1" and b[0]["hook"] == "H2"
+    used_d1 = {a[0]["clip"].split("@")[0], b[0]["clip"].split("@")[0]}
+    assert len(used_d1) == 2
+    # Day 2: next hooks in rotation; only the one unused video is rested, so one set is skipped.
+    d2 = date(2030, 2, 2)
+    items2 = builder.build_day(d2, store.settings(), now=datetime(2030, 2, 2, 0, 0, tzinfo=tz))
+    assert len(items2) == 3 and items2[0]["hook"] == "H3"
+    assert items2[0]["clip"].split("@")[0] not in used_d1
+    assert any("Not enough rested videos" in e["text"] for e in store.events())
+    # Day 8: day-1 videos have rested 7 days and can be used again.
+    d8 = date(2030, 2, 8)
+    items8 = builder.build_day(d8, store.settings(), now=datetime(2030, 2, 8, 0, 0, tzinfo=tz))
+    assert {r["clip"].split("@")[0] for r in items8} == used_d1
+    assert builder.sets_needed(store.settings()) == (2, 14)

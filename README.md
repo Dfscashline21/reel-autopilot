@@ -32,6 +32,9 @@ Setting it up for a customer? Follow the [new customer runbook](docs/RUNBOOK.md)
    3. Add hooks, one per line: `hook | caption | tag`.
    4. Add music (optional).
    5. Set your time zone, posting times, link in bio, hashtags, words to avoid and any required notice.
+      Posting times are grouped into **sets** (3 reels per set by default): each set is one hook and caption on
+      3 different pieces of one video. Each new set takes the next hook on your list, and a video isn't reused
+      until it has rested 7 days. Both numbers can be changed.
    6. Make sample reels, check them, then press **Start autopilot**.
 
 ## Day to day
@@ -52,6 +55,8 @@ Setting it up for a customer? Follow the [new customer runbook](docs/RUNBOOK.md)
 - **Trial reels** are only available to some Instagram accounts. If yours doesn't qualify, Instagram posts show
   as failed on Home; switch back to regular reels in Setup.
 - **Adding a posting time** takes effect the same day if it's at least 10 minutes away.
+- **How many videos you need:** sets a day × rest days. 2 sets a day with a 7-day rest needs 14 videos to post
+  every day. With fewer, sets that have no rested video are skipped and Home shows a warning.
 
 - **YouTube** accepts about 10 posts a day per account through Blotato, so the app sends at most 3 reels a day
   there by default (change it in step 5).

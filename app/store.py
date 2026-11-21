@@ -35,6 +35,8 @@ DEFAULT_SETTINGS = {
     "banned_words": "",        # comma separated; removed from every caption
     "notice": "",              # e.g. "Not medical advice." added to captions (not TikTok)
     "youtube_daily_cap": 3,
+    "reels_per_set": 3,               # reels sharing one hook + one video
+    "video_rest_days": 7,             # days before a video can be used again
     "ig_trial": "off",                 # off | MANUAL | SS_PERFORMANCE
     "reel_seconds": 13,        # target length of a finished reel
     "days_ahead": 2,           # how many days of reels to keep built

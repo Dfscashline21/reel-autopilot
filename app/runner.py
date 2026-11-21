@@ -52,6 +52,12 @@ def build_ahead(settings, now=None):
             if unused < per_day * 3:
                 store.event("warn", f"Footage is running low: {unused} unused windows left. "
                                     "Upload new clips soon; older footage is being reused with new looks.")
+            sets, needed = builder.sets_needed(settings)
+            ready = len(builder._ready_clips())
+            if ready < needed:
+                store.event("warn", f"{ready} videos ready; the rotation needs {needed} ({sets} sets a day, "
+                                    f"each video resting {settings.get('video_rest_days', 7)} days). "
+                                    "Some sets will be skipped until more videos are uploaded.")
     return built
 
 

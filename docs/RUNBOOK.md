@@ -94,12 +94,14 @@ Log in, then work down the Setup page. Each step turns green when done.
 4. **Music:** upload the tracks. Optional: without music the reels are silent.
 5. **Schedule and captions:** time zone, posting times, link in bio, hashtags, TikTok hashtags, words to avoid, required notice, YouTube daily limit (keep 3 or less), reel length (13 seconds is the default), days to build ahead.
 
-   **Posting times: one reel each.** Every time on the list gets its own reel, every day, posted to every platform that's ticked. Five times means five reels a day; one time means one a day.
+   **Posting times: one reel each, grouped into sets.** Every time on the list gets its own reel, every day, posted to every platform that's ticked. The times are grouped in order into sets of 3 (the **Reels per set** setting). Each set is one hook and caption on 3 different pieces of one video.
 
-   - Write them in 24-hour format in the customer's time zone, separated by commas, for example `15:00, 15:20, 15:40, 16:00, 16:20` (3:00 to 4:20 PM).
-   - Each reel gets its own hook and its own stretch of footage, about 15 seconds. Five a day uses about 75 seconds of fresh footage, so 5 minutes of B-roll lasts about 4 days before the app starts reusing footage with a new look.
+   - Write them in 24-hour format in the customer's time zone, separated by commas, for example `07:00, 07:02, 07:04, 07:06, 07:08, 07:10`.
+   - Example with those 6 times: 7:00–7:04 is Set 1 (hook 1 on 3 pieces of one video), 7:06–7:10 is Set 2 (hook 2 on 3 pieces of another video). The next day takes hooks 3 and 4, and so on, cycling back to the top of the hook list.
+   - The app picks each set's video. A video isn't used again until it has rested 7 days (the **Days before a video can be used again** setting). Videos needed to post every day = sets a day × rest days: 2 sets a day needs 14 videos. With fewer, sets without a rested video are skipped, and Home shows "videos ready / needed".
+   - Each video needs at least 3 pieces of about 15 seconds (45 seconds or more) so a set never repeats a piece.
    - YouTube gets reels only up to the YouTube daily limit (normally the earliest times); reels past the limit still go to the other platforms.
-   - A time added today is built that same day if it's at least 10 minutes away. Removing a time stops future reels at that slot; a reel already built for it still posts unless you Skip it on Home.
+   - A time added today is built that same day if it's at least 10 minutes away; if it lands in a set that has already started, it uses that set's hook and video. Removing a time stops future reels at that slot; a reel already built for it still posts unless you Skip it on Home.
 6. **Preview:** click **Make sample reels**, wait about a minute, refresh, and play all three. Check the text is readable, the face isn't covered and the music fits.
 
 When everything is green, click **Start autopilot**.

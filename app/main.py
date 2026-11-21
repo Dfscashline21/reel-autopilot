@@ -119,7 +119,9 @@ def home(request: Request):
     if not s.get("active"):
         return RedirectResponse("/setup", status_code=303)
     unused, per_day = builder.low_footage(s)
+    sets, needed = builder.sets_needed(s)
     return templates.TemplateResponse(request, "home.html", {
+        "sets": sets, "videos_needed": needed, "videos_ready": len(builder._ready_clips()),
         "s": s, "rows": upcoming(s), "events": store.events(25), "names": blotato.NAMES,
         "unused": unused, "per_day": per_day, "days_left": (unused // per_day) if per_day else 0,
         "disk": runner.disk_free_gb()})
@@ -304,7 +306,8 @@ def music_delete(name: str):
 def setup_schedule(timezone: str = Form("America/Los_Angeles"), times: str = Form(""),
                    link: str = Form(""), hashtags: str = Form(""), tiktok_hashtags: str = Form(""),
                    banned_words: str = Form(""), notice: str = Form(""), youtube_daily_cap: int = Form(3),
-                   reel_seconds: int = Form(13), days_ahead: int = Form(2)):
+                   reel_seconds: int = Form(13), days_ahead: int = Form(2),
+                   reels_per_set: int = Form(3), video_rest_days: int = Form(7)):
     ts = sorted({t if len(t) == 5 else f"0{t}" for t in re.findall(r"\b\d{1,2}:\d{2}\b", times)})
     try:
         ZoneInfo(timezone)
@@ -313,7 +316,9 @@ def setup_schedule(timezone: str = Form("America/Los_Angeles"), times: str = For
     store.save_settings(timezone=timezone, times=ts, link=link.strip(), hashtags=hashtags.strip(),
                         tiktok_hashtags=tiktok_hashtags.strip(), banned_words=banned_words.strip(),
                         notice=notice.strip(), youtube_daily_cap=max(0, youtube_daily_cap),
-                        reel_seconds=min(30, max(6, reel_seconds)), days_ahead=min(7, max(0, days_ahead)))
+                        reel_seconds=min(30, max(6, reel_seconds)), days_ahead=min(7, max(0, days_ahead)),
+                        reels_per_set=min(10, max(1, reels_per_set)),
+                        video_rest_days=min(60, max(0, video_rest_days)))
     return back("schedule")
 
 

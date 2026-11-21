@@ -100,7 +100,7 @@ Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment"
     <div class="row">
       <div><label>Time zone</label>
         <select name="timezone">{% for z in zones %}<option {% if z == s.timezone %}selected{% endif %}>{{ z }}</option>{% endfor %}</select></div>
-      <div><label>Posting times (one reel each)</label>
+      <div><label>Posting times (one reel each, grouped into sets in order)</label>
         <input type="text" name="times" value="{{ s.times | join(', ') }}" placeholder="15:00, 15:20, 15:40, 16:00, 16:20"></div>
     </div>
     <div class="row">
@@ -127,6 +127,15 @@ Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment"
       <div><label>Days to build ahead</label>
         <input type="number" name="days_ahead" value="{{ s.days_ahead }}" min="0" max="7"></div>
     </div>
+    <div class="row">
+      <div><label>Reels per set (same hook and caption, different pieces of one video)</label>
+        <input type="number" name="reels_per_set" value="{{ s.reels_per_set }}" min="1" max="10"></div>
+      <div><label>Days before a video can be used again</label>
+        <input type="number" name="video_rest_days" value="{{ s.video_rest_days }}" min="0" max="60"></div>
+    </div>
+    <p class="hint">Example: 6 posting times with 3 reels per set makes 2 sets a day. Times 1–3 share one hook and
+      one video; times 4–6 get the next hook and another video. Each set uses a new hook from your list, in order.
+      With videos resting 7 days, 2 sets a day needs at least 14 videos to post every day.</p>
     <button>Save schedule</button>
   </form>
 </section>

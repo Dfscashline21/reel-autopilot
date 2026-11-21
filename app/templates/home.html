@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>{% if s.paused %}<span class="warn">Paused</span>{% else %}Running{% endif %}</h1>
-<p class="sub">{{ per_day }} reels a day at {{ s.times | join(', ') }} ({{ s.timezone }}).</p>
+<p class="sub">{{ per_day }} reels a day in {{ sets }} set{{ '' if sets == 1 else 's' }} of {{ s.reels_per_set }}, at {{ s.times | join(', ') }} ({{ s.timezone }}).</p>
 
 <div class="stats">
   <div class="stat"><div class="v {% if days_left < 3 %}warn{% endif %}">{{ days_left }}</div><div class="k">days of fresh footage left</div></div>
   <div class="stat"><div class="v">{{ unused }}</div><div class="k">unused footage windows</div></div>
+  <div class="stat"><div class="v {% if videos_ready < videos_needed %}warn{% endif %}">{{ videos_ready }} / {{ videos_needed }}</div><div class="k">videos ready / needed for the {{ s.video_rest_days }}-day rotation</div></div>
   <div class="stat"><div class="v">{{ disk if disk is not none else '—' }} GB</div><div class="k">disk free</div></div>
 </div>
 {% if days_left < 3 %}<div class="msg">Footage is running low. Upload new clips on the <a href="/setup#clips">setup page</a>.
   Until then, older footage is reused with a different speed, crop and color so no reel repeats exactly.</div>{% endif %}
+{% if videos_ready < videos_needed %}<div class="msg">You have {{ videos_ready }} videos, but posting {{ sets }} set{{ '' if sets == 1 else 's' }} a day
+  with each video resting {{ s.video_rest_days }} days needs {{ videos_needed }}. Sets with no rested video are skipped.
+  Upload more on the <a href="/setup#clips">setup page</a>.</div>{% endif %}
 
 <div class="card">
   {% if s.paused %}
