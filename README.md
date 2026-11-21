@@ -17,7 +17,7 @@ before, or changes the speed, crop and color when footage has to repeat.
 2. **Deploy:** click **Deploy on Railway** below. Set `APP_PASSWORD` to a password you'll remember, then deploy.
    Railway attaches a disk at `/data` where your clips and reels live.
 
-   [![Deploy on Railway](https://railway.com/button.svg)](RAILWAY_TEMPLATE_URL)
+   [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/7PMRjL)
 
 3. **Open the app:** in Railway, open the service, go to **Settings → Networking → Generate Domain**, and open
    that address. Log in with your password.
@@ -66,8 +66,7 @@ Code map: `app/main.py` (web pages), `app/media.py` (clip conversion and footage
 (reel rendering), `app/runner.py` (the 5-minute autopilot loop and scheduling), `app/blotato.py` (posting),
 `app/captions.py` (per-platform captions), `app/store.py` (files on the `/data` disk).
 
-### Publishing the Railway template (one time, for the owner of this repo)
+### The Railway template
 
-In Railway: **Templates → New Template → from this GitHub repo**. Add a **volume** mounted at `/data`, add the
-variable `APP_PASSWORD` (mark it as required), and set the health check path to `/health`. Publish, then replace
-`RAILWAY_TEMPLATE_URL` above with the template's deploy link.
+The deploy button uses template `7PMRjL`: this repo, a volume at `/data`, a required `APP_PASSWORD`, and a public
+domain on port 8080. To change it, edit the source project in Railway and regenerate the template.
