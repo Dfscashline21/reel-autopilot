@@ -93,7 +93,8 @@ def files(rel: str):
     allowed = [store.DATA_DIR / d for d in ("source/thumbs", "previews", "batches")]
     if not any(str(p).startswith(str(a.resolve())) for a in allowed) or not p.is_file():
         return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(p)
+    # Revalidate every time: previews and reels are rebuilt under the same names.
+    return FileResponse(p, headers={"Cache-Control": "no-cache"})
 
 
 # ── home ──────────────────────────────────────────────────────────────────────
@@ -175,7 +176,12 @@ def setup(request: Request, msg: str = ""):
     previews = []
     pdir = store.DATA_DIR / "previews"
     if pdir.exists():
-        previews = sorted(p.name for p in pdir.glob("reel_*.mp4"))
+        info = {r["file"]: r for r in (store.read_json("previews/plan.json", []) or [])}
+        names = {c["id"]: c["name"] for c in store.clips()}
+        for f in sorted(pdir.glob("reel_*.mp4")):
+            r = info.get(f.name, {})
+            previews.append({"file": f.name, "v": int(f.stat().st_mtime), "hook": r.get("hook", ""),
+                             "video": names.get((r.get("clip") or "").split("@")[0], "")})
     hooks_text = "\n".join(" | ".join(x for x in (h.get("hook", ""), h.get("caption", ""), h.get("tag", "")) if x)
                            for h in store.hooks())
     return templates.TemplateResponse(request, "setup.html", {

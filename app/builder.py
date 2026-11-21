@@ -346,4 +346,6 @@ def build_previews(n=3):
     s["times"] = ["23:58"] * n
     tz = ZoneInfo(s["timezone"])
     now = datetime.now(tz).replace(hour=0, minute=0)
-    return build_day(now.date(), s, now=now, out_dir=out, record=False)
+    items = build_day(now.date(), s, now=now, out_dir=out, record=False)
+    store.write_json("previews/plan.json", items)
+    return items

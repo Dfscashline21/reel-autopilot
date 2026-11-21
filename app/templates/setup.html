@@ -147,7 +147,8 @@ Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment"
     {{ 'Making samples… refresh in a minute' if preview.running else 'Make sample reels' }}</button></form>
   {% if preview.error %}<p class="bad">{{ preview.error }}</p>{% endif %}
   {% if previews %}<div class="videos" style="margin-top:12px">
-    {% for v in previews %}<video src="/files/previews/{{ v }}" poster="/files/previews/{{ v[:-4] }}.jpg" controls playsinline preload="none"></video>{% endfor %}
+    {% for v in previews %}<figure class="sample"><video src="/files/previews/{{ v.file }}?v={{ v.v }}" poster="/files/previews/{{ v.file[:-4] }}.jpg?v={{ v.v }}" controls playsinline preload="none"></video>
+      {% if v.video %}<figcaption class="hint">{{ v.hook }}<br>{{ v.video }}</figcaption>{% endif %}</figure>{% endfor %}
   </div>{% endif %}
   <div id="start" style="margin-top:16px">
   {% if s.active %}
