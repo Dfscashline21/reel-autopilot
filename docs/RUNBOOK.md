@@ -74,6 +74,7 @@ You build and test the app in **your** Railway account, then transfer the whole 
 3. Click **Deploy**. The first build takes 3 to 5 minutes.
 4. Rename the project after the customer (project → Settings → name), so it's easy to find and transfer later.
 5. Open the service, then **Settings → Networking**, and copy the public address (ending in `.up.railway.app`). If none is shown, click **Generate Domain**.
+6. **Link the repo so the app gets updates.** Open the service, then **Settings → Source**, and connect the GitHub repo `Dfscashline21/reel-autopilot`, branch `main`. A copy made from the deploy button is pinned to the code from the day it was made: it doesn't update on its own, and even a Redeploy rebuilds that same old version. Once the repo is linked, every update pushed to the repo redeploys the app within a couple of minutes.
 
 **Check:** opening the address shows the Reel Autopilot login page, and `<address>/health` shows `{"ok":true}`.
 
@@ -184,6 +185,6 @@ Reels already in Blotato always post unless they're moved to drafts in Blotato, 
 | Hand the app to the customer after a done-for-you setup | The customer needs a Railway account on an active Hobby or Pro plan. In Railway, open the project → Settings → Members, invite the customer's email (project members work on Hobby; workspace invites don't). Once they accept, click the three dots next to their name → Transfer Ownership. Give them the app address; then the customer changes `APP_PASSWORD` in Railway |
 | Change the password | Railway → service → Variables → edit `APP_PASSWORD`; it redeploys in about a minute |
 | Shut it down for good | Stop autopilot, clear Blotato's scheduled reels, then Railway → project → Settings → **Delete project**. This deletes the footage and history on the disk, so download anything worth keeping first |
-| Update to the latest version | Railway → service → Settings → Source shows the GitHub repo; redeploy to pick up new code. Settings, clips and history on the disk are kept |
+| Update to the latest version | If the repo is linked (step 2.6), updates arrive on their own a couple of minutes after they're pushed. If not, link it under Railway → service → Settings → Source; Redeploy alone keeps the old version. Settings, clips and history on the disk are kept |
 
-**Not yet tested:** that the app's disk (clips, settings, footage history) moves with the project in a transfer. Railway treats the volume as part of the project, so it should. Confirm it on the first customer: after the transfer, log in and check Home and Setup still show everything.
+**Not yet tested:** that the app's disk (clips, settings, footage history) moves with the project in a transfer, and that automatic updates keep working once the project belongs to the customer. Railway treats the volume as part of the project, so the disk should move. Confirm both on the first customer: after the transfer, log in and check Home and Setup still show everything, and after the next update check the app's deployments in Railway show it.

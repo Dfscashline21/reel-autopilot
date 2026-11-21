@@ -21,9 +21,11 @@ Setting it up for a customer? Follow the [new customer runbook](docs/RUNBOOK.md)
 
    [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/7PMRjL)
 
-3. **Open the app:** in Railway, open the service, go to **Settings → Networking → Generate Domain**, and open
+3. **Turn on updates:** in Railway, open the service → **Settings → Source** and connect this GitHub repo
+   (branch `main`). Copies made from the button don't pick up new versions until you do.
+4. **Open the app:** in Railway, open the service, go to **Settings → Networking → Generate Domain**, and open
    that address. Log in with your password.
-4. **Follow the six setup steps:**
+5. **Follow the six setup steps:**
    1. Paste your Blotato key; the app finds your connected accounts. Untick any you don't want. Choose how
       Instagram reels go out: regular reels, or trial reels (shown to non-followers first) that Instagram shares
       with followers if they do well, or that you share yourself.
