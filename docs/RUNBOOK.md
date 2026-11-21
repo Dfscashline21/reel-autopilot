@@ -92,7 +92,14 @@ Log in, then work down the Setup page. Each step turns green when done.
 2. **Upload B-roll:** choose all clips and click Upload. Each converts in the background (about 1 minute per minute of 4K video). Refresh until all show **Ready**. Open **review** on each clip and untick any stretch with someone else in shot or nothing happening.
 3. **Hooks and captions:** paste one per line as `hook | caption | tag`, or upload a .txt or .json file. Click Save.
 4. **Music:** upload the tracks. Optional: without music the reels are silent.
-5. **Schedule and captions:** time zone, posting times (for example `15:00, 15:20, 15:40, 16:00, 16:20`), link in bio, hashtags, TikTok hashtags, words to avoid, required notice, YouTube daily limit (keep 3 or less), reel length (13 seconds is the default), days to build ahead.
+5. **Schedule and captions:** time zone, posting times, link in bio, hashtags, TikTok hashtags, words to avoid, required notice, YouTube daily limit (keep 3 or less), reel length (13 seconds is the default), days to build ahead.
+
+   **Posting times: one reel each.** Every time on the list gets its own reel, every day, posted to every platform that's ticked. Five times means five reels a day; one time means one a day.
+
+   - Write them in 24-hour format in the customer's time zone, separated by commas, for example `15:00, 15:20, 15:40, 16:00, 16:20` (3:00 to 4:20 PM).
+   - Each reel gets its own hook and its own stretch of footage, about 15 seconds. Five a day uses about 75 seconds of fresh footage, so 5 minutes of B-roll lasts about 4 days before the app starts reusing footage with a new look.
+   - YouTube gets reels only up to the YouTube daily limit (normally the earliest times); reels past the limit still go to the other platforms.
+   - A time added today is built that same day if it's at least 10 minutes away. Removing a time stops future reels at that slot; a reel already built for it still posts unless you Skip it on Home.
 6. **Preview:** click **Make sample reels**, wait about a minute, refresh, and play all three. Check the text is readable, the face isn't covered and the music fits.
 
 When everything is green, click **Start autopilot**.
