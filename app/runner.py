@@ -40,12 +40,11 @@ def build_ahead(settings, now=None):
     built = []
     for k in range(int(settings.get("days_ahead", 2)) + 1):
         day = now.date() + timedelta(days=k)
-        if builder.plan(day) is not None:
-            continue
         unused, per_day = builder.low_footage(settings)
-        items = builder.build_day(day, settings, now=now)
-        if not items:                     # every time today has passed: mark the day done
-            builder.save_plan(day, [])
+        items = builder.build_day(day, settings, now=now)   # only slots the day is missing
+        if not items:
+            if builder.plan(day) is None:
+                builder.save_plan(day, [])
             continue
         if items:
             built.append(day)

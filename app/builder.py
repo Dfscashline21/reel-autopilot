@@ -190,12 +190,19 @@ def save_plan(day, items):
 
 
 def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
-    """Render one reel per posting time for `day`. Times already gone are skipped."""
+    """Render one reel per posting time for `day` that doesn't have one yet.
+
+    Times already gone (or within 10 minutes) are skipped. When the day already
+    has reels, new ones are added after them, so adding a posting time takes
+    effect the same day. Returns only the newly built reels.
+    """
     s = settings or store.settings()
     tz = ZoneInfo(s["timezone"])
     now = now or datetime.now(tz)
-    times = [t for t in s["times"]
-             if datetime.fromisoformat(f"{day.isoformat()}T{t}").replace(tzinfo=tz) > now + timedelta(minutes=10)]
+    existing = (plan(day) or []) if record else []
+    have = {r["local_time"] for r in existing}
+    times = [t for t in s["times"] if t not in have
+             and datetime.fromisoformat(f"{day.isoformat()}T{t}").replace(tzinfo=tz) > now + timedelta(minutes=10)]
     if not times:
         return []
     h = _history()
@@ -210,7 +217,8 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
     out.mkdir(parents=True, exist_ok=True)
     yt_cap = int(s.get("youtube_daily_cap", 3))
     items = []
-    for i, (t, (key, cid, start), hk) in enumerate(zip(times, wins, hks), 1):
+    first = max([r["n"] for r in existing] + [0]) + 1
+    for i, (t, (key, cid, start), hk) in enumerate(zip(times, wins, hks), first):
         h["counter"] += 1
         variant = pick_variant(key, h["counter"], h)
         music = tracks[(h["counter"]) % len(tracks)] if tracks else None
@@ -235,7 +243,7 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
             h["hooks"][hk["hook"]] = h["counter"]
     if record:
         store.write_json("history.json", h)
-        save_plan(day, items)
+        save_plan(day, sorted(existing + items, key=lambda r: r["local_time"]))
     return items
 
 

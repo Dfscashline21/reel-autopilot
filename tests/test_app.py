@@ -168,3 +168,22 @@ def test_login_and_pages():
         r = c.post("/start", follow_redirects=False)
         assert "processed%20clip" in r.headers["location"]          # no ready clip yet
         assert c.get("/files/../settings.json").status_code == 404
+
+
+def test_adding_a_time_builds_only_the_new_slot():
+    make_clip("clip01", 60)
+    store.write_json("hooks.json", [{"hook": "H1"}, {"hook": "H2"}, {"hook": "H3"}])
+    tz = ZoneInfo(TZ)
+    day = date(2030, 1, 10)
+    now = datetime(2030, 1, 10, 9, 0, tzinfo=tz)
+    first = builder.build_day(day, store.settings(), now=now)
+    assert [r["local_time"] for r in first] == ["15:00", "15:20"]
+    again = builder.build_day(day, store.settings(), now=now)
+    assert again == []                                   # nothing new: no rebuild
+    store.save_settings(times=["12:00", "15:00", "15:20"])
+    added = builder.build_day(day, store.settings(), now=now)
+    assert [r["local_time"] for r in added] == ["12:00"]
+    plan = builder.plan(day)
+    assert [r["local_time"] for r in plan] == ["12:00", "15:00", "15:20"]
+    assert len({r["file"] for r in plan}) == 3           # no file overwritten
+    assert len({r["clip"] for r in plan}) == 3           # no shared footage
