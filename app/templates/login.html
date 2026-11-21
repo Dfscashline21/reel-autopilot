@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% set bare = True %}
+{% block body %}
+<div class="card login">
+  <h1>Reel Autopilot</h1>
+  {% if configured %}
+  <p class="sub">Enter the password you set when you deployed.</p>
+  {% if error %}<p class="bad">That password didn't match.</p>{% endif %}
+  <form method="post" action="/login">
+    <label for="pw">Password</label>
+    <input id="pw" name="pw" type="password" autofocus>
+    <button>Log in</button>
+  </form>
+  {% else %}
+  <p class="bad">No password is set.</p>
+  <p class="hint">In Railway, open this service, go to Variables, add <b>APP_PASSWORD</b>, and let it redeploy.</p>
+  {% endif %}
+</div>
+{% endblock %}

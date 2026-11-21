@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ c.name }}</h1>
+<p class="sub">Each picture is one {{ w }}-second stretch that can become a reel. Untick any you don't want used,
+  for example ones with someone else in shot.</p>
+<form method="post" action="/clips/{{ c.id }}/windows" class="card">
+  <div class="grid">
+  {% for st in starts %}
+    <label><img src="/files/source/thumbs/{{ c.id }}@{{ st }}.jpg" alt="">
+      <input type="checkbox" name="keep" value="{{ st }}" {% if st not in c.excluded %}checked{% endif %}>
+      {{ st | int }}–{{ (st + w) | int }} s</label>
+  {% endfor %}
+  </div>
+  <button>Save</button> <a href="/setup#clips">Back</a>
+</form>
+{% endblock %}

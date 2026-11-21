@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Reel Autopilot{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% if not bare %}
+<header>
+  <div class="brand">Reel Autopilot</div>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/setup">Setup</a>
+    <form class="inline" method="post" action="/logout"><button class="small quiet">Log out</button></form>
+  </nav>
+</header>
+{% endif %}
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

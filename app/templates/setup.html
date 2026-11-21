@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Setup · Reel Autopilot{% endblock %}
+{% block body %}
+<h1>Setup</h1>
+<p class="sub">Six steps. Once they're done, press Start and the app builds and schedules your reels every day.</p>
+{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+
+{% set has_accounts = s.accounts and (s.accounts.values() | selectattr("enabled") | list) %}
+<section class="card {% if has_accounts %}done{% endif %}" id="blotato">
+  <div class="step"><span class="num">1</span><h2>Connect Blotato</h2></div>
+  <p class="hint">Blotato does the posting. In Blotato: connect Instagram, TikTok, YouTube and Facebook under Accounts,
+    then copy your API key from Settings → API. Paste it here.</p>
+  <form method="post" action="/setup/blotato">
+    <label for="k">Blotato API key</label>
+    <input id="k" name="api_key" type="password" placeholder="{{ 'Saved. Paste a new key to replace it.' if s.blotato_api_key else 'Paste your key' }}">
+    <button>{{ 'Refresh accounts' if s.blotato_api_key else 'Connect' }}</button>
+  </form>
+  {% if s.accounts %}
+  <form method="post" action="/setup/platforms">
+    <label>Post to</label>
+    <div class="chips">
+    {% for p, a in s.accounts.items() %}
+      <label class="chip"><input type="checkbox" name="on_{{ p }}" value="1" {% if a.enabled %}checked{% endif %}>
+        {{ names[p] }}{% if a.username %} · {{ a.username }}{% endif %}</label>
+    {% endfor %}
+    </div>
+    <button class="quiet">Save platforms</button>
+  </form>
+  {% elif s.blotato_api_key %}
+  <p class="warn">No social accounts are connected in Blotato yet. Connect them there, then press Refresh accounts.</p>
+  {% endif %}
+</section>
+
+{% set ready_clips = clips | selectattr("status", "equalto", "ready") | list %}
+<section class="card {% if ready_clips %}done{% endif %}" id="clips">
+  <div class="step"><span class="num">2</span><h2>Upload your B-roll</h2></div>
+  <p class="hint">Vertical phone videos of you doing your thing: 5–10 clips, 5–10 minutes in total.
+    Each reel uses its own stretch of footage, so more footage means more days before anything repeats.
+    Big files are fine; they're converted in the background.</p>
+  <form method="post" action="/setup/clips" enctype="multipart/form-data">
+    <input type="file" name="files" accept="video/*" multiple>
+    <button>Upload clips</button>
+  </form>
+  {% if clips %}
+  <table>
+    <tr><th>Clip</th><th>Status</th><th>Length</th><th>Reel windows</th><th></th></tr>
+    {% for c in clips %}
+    <tr>
+      <td>{{ c.name }}</td>
+      <td>{% if c.status == 'ready' %}<span class="ok">Ready</span>{% elif c.status == 'failed' %}<span class="bad">Failed</span>{% else %}<span class="warn">Processing…</span>{% endif %}</td>
+      <td>{{ (c.duration or 0) | round | int }} s</td>
+      <td>{% if c.status == 'ready' %}<a href="/clips/{{ c.id }}">{{ windows[c.id] }} · review</a>{% endif %}</td>
+      <td><form class="inline" method="post" action="/clips/{{ c.id }}/delete"><button class="small quiet">Remove</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="hint">Open "review" to untick any stretch with someone else in shot. Refresh this page to see processing finish.</p>
+  {% endif %}
+</section>
+
+<section class="card {% if hook_count %}done{% endif %}" id="hooks">
+  <div class="step"><span class="num">3</span><h2>Add hooks and captions</h2></div>
+  <p class="hint">One per line: <b>hook | caption | tag</b>. The hook is the text on screen (keep it short). The caption and
+    tag are optional. Or upload a .json or .txt file. {{ hook_count }} saved.</p>
+  <form method="post" action="/setup/hooks" enctype="multipart/form-data">
+    <textarea name="text" placeholder="Built this at my kitchen table. | Free guide, link in bio. | traffic
+Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment">{{ hooks_text }}</textarea>
+    <label>Or upload a file</label>
+    <input type="file" name="file" accept=".json,.txt,.csv">
+    <button>Save hooks</button>
+  </form>
+</section>
+
+<section class="card {% if music %}done{% endif %}" id="music">
+  <div class="step"><span class="num">4</span><h2>Add music (optional)</h2></div>
+  <p class="hint">MP3s you have the rights to use. Each reel uses a different track or a different part of one.
+    Without music, reels are silent and you can add trending audio in the app instead.</p>
+  <form method="post" action="/setup/music" enctype="multipart/form-data">
+    <input type="file" name="files" accept="audio/*" multiple>
+    <button>Upload music</button>
+  </form>
+  {% if music %}<div class="chips" style="margin-top:12px">
+    {% for m in music %}<span class="chip">{{ m }}
+      <form class="inline" method="post" action="/music/{{ m }}/delete"><button class="small quiet">×</button></form></span>{% endfor %}
+  </div>{% endif %}
+</section>
+
+<section class="card {% if s.times %}done{% endif %}" id="schedule">
+  <div class="step"><span class="num">5</span><h2>Schedule and captions</h2></div>
+  <form method="post" action="/setup/schedule">
+    <div class="row">
+      <div><label>Time zone</label>
+        <select name="timezone">{% for z in zones %}<option {% if z == s.timezone %}selected{% endif %}>{{ z }}</option>{% endfor %}</select></div>
+      <div><label>Posting times (one reel each)</label>
+        <input type="text" name="times" value="{{ s.times | join(', ') }}" placeholder="15:00, 15:20, 15:40, 16:00, 16:20"></div>
+    </div>
+    <div class="row">
+      <div><label>Link in bio (where your calls to action point)</label>
+        <input type="text" name="link" value="{{ s.link }}" placeholder="https://"></div>
+      <div><label>Hashtags for Instagram, Facebook, YouTube (3–4)</label>
+        <input type="text" name="hashtags" value="{{ s.hashtags }}" placeholder="#smallbusiness #buildinpublic"></div>
+    </div>
+    <div class="row">
+      <div><label>TikTok hashtags (plain, up to 4)</label>
+        <input type="text" name="tiktok_hashtags" value="{{ s.tiktok_hashtags }}"></div>
+      <div><label>Words to never use (comma separated)</label>
+        <input type="text" name="banned_words" value="{{ s.banned_words }}" placeholder="guaranteed, free money"></div>
+    </div>
+    <div class="row">
+      <div><label>Required notice (added to captions, not TikTok)</label>
+        <input type="text" name="notice" value="{{ s.notice }}" placeholder="Not medical advice."></div>
+      <div><label>Most reels a day to YouTube</label>
+        <input type="number" name="youtube_daily_cap" value="{{ s.youtube_daily_cap }}" min="0" max="10"></div>
+    </div>
+    <div class="row">
+      <div><label>Reel length (seconds)</label>
+        <input type="number" name="reel_seconds" value="{{ s.reel_seconds }}" min="6" max="30"></div>
+      <div><label>Days to build ahead</label>
+        <input type="number" name="days_ahead" value="{{ s.days_ahead }}" min="0" max="7"></div>
+    </div>
+    <button>Save schedule</button>
+  </form>
+</section>
+
+<section class="card {% if previews %}done{% endif %}" id="preview">
+  <div class="step"><span class="num">6</span><h2>Preview, then start</h2></div>
+  <p class="hint">Make 3 sample reels to check the look. Samples don't use up footage.</p>
+  <form method="post" action="/setup/preview"><button class="quiet" {% if preview.running %}disabled{% endif %}>
+    {{ 'Making samples… refresh in a minute' if preview.running else 'Make sample reels' }}</button></form>
+  {% if preview.error %}<p class="bad">{{ preview.error }}</p>{% endif %}
+  {% if previews %}<div class="videos" style="margin-top:12px">
+    {% for v in previews %}<video src="/files/previews/{{ v }}" poster="/files/previews/{{ v[:-4] }}.jpg" controls playsinline preload="none"></video>{% endfor %}
+  </div>{% endif %}
+  <div id="start" style="margin-top:16px">
+  {% if s.active %}
+    <p class="ok">Autopilot is running.</p>
+    <form class="inline" method="post" action="/stop"><button class="quiet">Stop autopilot</button></form>
+    <a class="btn" href="/">Go to Home</a>
+  {% elif missing %}
+    <p class="warn">Still needed: {{ missing | join(', ') }}.</p>
+  {% else %}
+    <form method="post" action="/start"><button>Start autopilot</button></form>
+  {% endif %}
+  </div>
+</section>
+{% endblock %}
