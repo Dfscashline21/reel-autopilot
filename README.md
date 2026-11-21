@@ -10,6 +10,8 @@ before, or changes the speed, crop and color when footage has to repeat.
 - A **Blotato** account on a paid plan (blotato.com), with your social accounts connected.
 - 5–10 minutes of vertical B-roll of you, 20+ hooks, and optionally a few music tracks you have the rights to use.
 
+Setting it up for a customer? Follow the [new customer runbook](docs/RUNBOOK.md).
+
 ## Set it up (about 15 minutes)
 
 1. **Blotato:** sign up, open **Accounts**, connect Instagram, TikTok, YouTube and Facebook. Copy your API key
