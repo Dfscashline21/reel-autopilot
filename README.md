@@ -22,7 +22,9 @@ before, or changes the speed, crop and color when footage has to repeat.
 3. **Open the app:** in Railway, open the service, go to **Settings → Networking → Generate Domain**, and open
    that address. Log in with your password.
 4. **Follow the six setup steps:**
-   1. Paste your Blotato key; the app finds your connected accounts. Untick any you don't want.
+   1. Paste your Blotato key; the app finds your connected accounts. Untick any you don't want. Choose how
+      Instagram reels go out: regular reels, or trial reels (shown to non-followers first) that Instagram shares
+      with followers if they do well, or that you share yourself.
    2. Upload your clips. Big phone videos are fine; they convert in the background. Open **review** on each
       clip to untick any stretch with someone else in shot.
    3. Add hooks, one per line: `hook | caption | tag`.
@@ -41,6 +43,13 @@ before, or changes the speed, crop and color when footage has to repeat.
 - Reply to comments. That part stays human.
 
 ## Good to know
+
+- **Uploads:** there's no limit on clip length, but each upload must finish within Railway's 15-minute request
+  limit, and clips selected together count as one upload. Upload large 4K files one or two at a time, or trim
+  them to their best 30–60 seconds. Originals are deleted after conversion; the disk is 5 GB by default.
+- **Trial reels** are only available to some Instagram accounts. If yours doesn't qualify, Instagram posts show
+  as failed on Home; switch back to regular reels in Setup.
+- **Adding a posting time** takes effect the same day if it's at least 10 minutes away.
 
 - **YouTube** accepts about 10 posts a day per account through Blotato, so the app sends at most 3 reels a day
   there by default (change it in step 5).
