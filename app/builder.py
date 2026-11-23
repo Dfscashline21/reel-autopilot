@@ -231,7 +231,7 @@ def render(clip_id, start, hook, music, music_offset, variant, out_path, reel_se
     zc = f"scale={int(W * zoom)}:-2,crop={W}:{H}" if zoom > 1 else f"scale={W}:{H}"
     flip = ",hflip" if mirror else ""
     vf = (f"[0:v]setpts=PTS/{speed},fps={FPS},{zc}{flip},{grade},vignette=PI/{4 + variant % 3},format=yuv420p[bg];"
-          f"[1:v]format=rgba,fade=t=in:st=0.25:d=0.35:alpha=1[ov];[bg][ov]overlay=0:0[v]")
+          f"[1:v]format=rgba[ov];[bg][ov]overlay=0:0[v]")
     cmd = ["ffmpeg", "-v", "error", "-y", "-ss", str(start), "-t", str(src_len), "-i", str(src),
            "-loop", "1", "-framerate", str(FPS), "-i", png]
     if music:
