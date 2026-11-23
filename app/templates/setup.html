@@ -70,7 +70,8 @@
 <section class="card {% if hook_count %}done{% endif %}" id="hooks">
   <div class="step"><span class="num">3</span><h2>Add hooks and captions</h2></div>
   <p class="hint">One per line: <b>hook | caption | tag</b>. The hook is the text on screen (keep it short). The caption and
-    tag are optional. Or upload a .json or .txt file. {{ hook_count }} saved.</p>
+    tag are optional. Add a date (<b>| 2026-11-26</b>) to post a hook only on that day, and <b>| fav</b> (or start
+    the line with ⭐) to have a favorite come around about twice as often. Or upload a .json or .txt file. {{ hook_count }} saved.</p>
   <form method="post" action="/setup/hooks" enctype="multipart/form-data">
     <textarea name="text" placeholder="Built this at my kitchen table. | Free guide, link in bio. | traffic
 Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment">{{ hooks_text }}</textarea>

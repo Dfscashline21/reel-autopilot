@@ -1,5 +1,6 @@
 """Turns footage windows + hooks into finished reels, and a day of reels into a batch."""
 import itertools
+import re
 import shutil
 import subprocess
 from datetime import date, datetime, timedelta
@@ -12,6 +13,9 @@ from . import media, store
 W, H, FPS = media.W, media.H, media.FPS
 FONT_CANDIDATES = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"]
+BOX_FONT_CANDIDATES = ["/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+                       "/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf"] + FONT_CANDIDATES
+EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
 
 SPEEDS = [1.0, 1.08, 0.95, 1.12, 1.04]
 ZOOMS = [1.0, 1.03, 1.06, 1.09]
@@ -29,8 +33,8 @@ MIRRORS = [False, True]
 VARIANTS = list(itertools.product(range(len(SPEEDS)), range(len(ZOOMS)), range(len(GRADES)), MIRRORS))
 
 
-def _font(size):
-    for f in FONT_CANDIDATES:
+def _font(size, candidates=FONT_CANDIDATES):
+    for f in candidates:
         try:
             return ImageFont.truetype(f, size)
         except OSError:
@@ -76,6 +80,146 @@ def overlay_png(text, out_path):
     img.save(out_path)
 
 
+# ── two-box hooks ("Box 1: … Box 2: …" or "Clip 1: … Clip 2: …") ─────────────
+_BOX_LABEL = re.compile(r"(?i)\b(?:box|clip)\s*\d+\s*:\s*")
+_QUOTES = {'"': '"', "\u201c": "\u201d", "'": "'", "\u2018": "\u2019"}
+_EMOJI_BASE = "\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\u2190-\u21FF\u3030\u303D"
+_EMOJI = re.compile(rf"(?:[{_EMOJI_BASE}][\uFE0F\U0001F3FB-\U0001F3FF]*(?:\u200D[{_EMOJI_BASE}][\uFE0F\U0001F3FB-\U0001F3FF]*)*)+")
+
+
+def split_boxes(hook):
+    """The text of each box when the hook is written as Box 1/Box 2 (or Clip 1/Clip 2), else None."""
+    if not _BOX_LABEL.search(hook or ""):
+        return None
+    parts = [p.strip() for p in _BOX_LABEL.split(hook)]
+    boxes = []
+    for p in parts:
+        if len(p) > 1 and p[0] in _QUOTES and _QUOTES[p[0]] in p[1:]:
+            end = p.rfind(_QUOTES[p[0]])
+            if not p[end + 1:].strip(" .…!?"):   # quote wraps the whole box
+                p = (p[1:end] + p[end + 1:]).strip()
+        if p:
+            boxes.append(p)
+    return boxes or None
+
+
+def plain_hook(hook):
+    """Hook text without the box labels, for places that need one line (titles)."""
+    boxes = split_boxes(hook)
+    return " ".join(boxes) if boxes else (hook or "")
+
+
+_emoji_cache = {}
+
+
+def _emoji_img(cluster, h):
+    """A color emoji scaled to height h (Noto ships one bitmap size, 109px)."""
+    key = (cluster, h)
+    if key not in _emoji_cache:
+        try:
+            f = ImageFont.truetype(EMOJI_FONT, 109)
+            im = Image.new("RGBA", (300, 160), (0, 0, 0, 0))
+            ImageDraw.Draw(im).text((10, 10), cluster, font=f, embedded_color=True)
+            bb = im.getbbox()
+            im = im.crop(bb) if bb else im.crop((0, 0, 1, 1))
+            _emoji_cache[key] = im.resize((max(1, round(im.width * h / im.height)), h), Image.LANCZOS)
+        except OSError:
+            _emoji_cache[key] = None
+    return _emoji_cache[key]
+
+
+def _runs(text):
+    """Split text into ("t", text) and ("e", emoji) runs."""
+    out, pos = [], 0
+    for m in _EMOJI.finditer(text):
+        if m.start() > pos:
+            out.append(("t", text[pos:m.start()]))
+        out.append(("e", m.group(0)))
+        pos = m.end()
+    if pos < len(text):
+        out.append(("t", text[pos:]))
+    return out
+
+
+def _rich_width(d, text, font, eh):
+    w = 0
+    for kind, s in _runs(text):
+        if kind == "t":
+            w += d.textlength(s, font=font)
+        else:
+            im = _emoji_img(s, eh)
+            w += (im.width if im else 0) + eh * 0.12
+    return w
+
+
+def _rich_draw(img, d, x, y, text, font, eh, ascent):
+    for kind, s in _runs(text):
+        if kind == "t":
+            d.text((x, y), s, font=font, fill=(0, 0, 0))
+            x += d.textlength(s, font=font)
+        else:
+            im = _emoji_img(s, eh)
+            if im:
+                x += eh * 0.06
+                img.alpha_composite(im, (int(x), int(y + ascent - eh * 0.92)))
+                x += im.width + eh * 0.06
+
+
+def boxes_png(boxes, out_path):
+    """Each box as black text on a white rounded box, stacked in the upper middle, all on screen at once."""
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    maxw, padx, pady, gap = int(W * 0.74), 34, 22, 56
+
+    def layout(size):
+        font = _font(size, BOX_FONT_CANDIDATES)
+        eh = int(size * 0.95)
+        wrapped = []
+        for b in boxes:
+            lines, cur = [], ""
+            for word in b.split():
+                t = (cur + " " + word).strip()
+                if not cur or _rich_width(d, t, font, eh) <= maxw:
+                    cur = t
+                else:
+                    lines.append(cur)
+                    cur = word
+            if cur:
+                lines.append(cur)
+            wrapped.append(lines)
+        return font, eh, wrapped
+
+    size = 64
+    font, eh, wrapped = layout(size)
+    while sum(len(x) for x in wrapped) > 10 and size > 44:
+        size -= 4
+        font, eh, wrapped = layout(size)
+    ascent, descent = font.getmetrics()
+    lh = int(size * 1.22)
+    heights = [len(ls) * lh + 2 * pady for ls in wrapped]
+    total = sum(heights) + gap * (len(wrapped) - 1)
+    y = max(220, int(H * 0.40) - total // 2)
+    for ls, bh in zip(wrapped, heights):
+        bw = max(_rich_width(d, ln, font, eh) for ln in ls) + 2 * padx
+        x0 = (W - bw) / 2
+        d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=26, fill=(255, 255, 255, 245))
+        ty = y + pady + (lh - (ascent + descent)) // 2
+        for ln in ls:
+            lw = _rich_width(d, ln, font, eh)
+            _rich_draw(img, d, (W - lw) / 2, ty, ln, font, eh, ascent)
+            ty += lh
+        y += bh + gap
+    img.save(out_path)
+
+
+def hook_png(hook, out_path):
+    boxes = split_boxes(hook)
+    if boxes:
+        boxes_png(boxes, out_path)
+    else:
+        overlay_png(hook, out_path)
+
+
 def render(clip_id, start, hook, music, music_offset, variant, out_path, reel_seconds=13):
     sp_i, zm_i, gr_i, mirror = VARIANTS[variant % len(VARIANTS)]
     speed, zoom, grade = SPEEDS[sp_i], ZOOMS[zm_i], GRADES[gr_i]
@@ -83,7 +227,7 @@ def render(clip_id, start, hook, music, music_offset, variant, out_path, reel_se
     src_len = round(length * speed, 2)
     src = store.DATA_DIR / "source" / "clips" / f"{clip_id}.mp4"
     png = str(out_path).rsplit(".", 1)[0] + "_hook.png"
-    overlay_png(hook, png)
+    hook_png(hook, png)
     zc = f"scale={int(W * zoom)}:-2,crop={W}:{H}" if zoom > 1 else f"scale={W}:{H}"
     flip = ",hflip" if mirror else ""
     vf = (f"[0:v]setpts=PTS/{speed},fps={FPS},{zc}{flip},{grade},vignette=PI/{4 + variant % 3},format=yuv420p[bg];"
@@ -159,13 +303,31 @@ def pick_variant(key, salt, history):
     return salt % len(VARIANTS)
 
 
-def pick_hooks(n, history=None):
+def pick_hooks(n, history=None, day=None, skip=()):
+    """n hooks for new sets on `day`.
+
+    Hooks pinned to `day` come first. Hooks pinned to other days never run. The rest
+    rotate, least recently used first; a favorite counts as having waited twice as
+    long, so it comes around about twice as often. Hooks in `skip` (already posted
+    today) are left out.
+    """
     h = history or _history()
-    items = [x for x in store.hooks() if (x.get("hook") or "").strip()]
-    items.sort(key=lambda x: h["hooks"].get(x["hook"], -1))
-    if not items:
-        return []
-    return [items[i % len(items)] for i in range(n)]
+    now = h.get("counter", 0)
+    today = day.isoformat() if day else None
+    items = [x for x in store.hooks() if (x.get("hook") or "").strip() and x["hook"] not in skip]
+    pinned = [x for x in items if today and today in (x.get("dates") or [])]
+    free = [x for x in items if not x.get("dates")]
+
+    def due(x):
+        last = h["hooks"].get(x["hook"], -1)
+        if last < 0:
+            return last
+        return 2 * last - now if x.get("fav") else last
+    free.sort(key=due)
+    out = pinned[:n]
+    if free:
+        out += [free[i % len(free)] for i in range(n - len(out))]
+    return out
 
 
 def low_footage(settings=None):
@@ -272,9 +434,9 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
             sets[r["set"]]["used"].add(r["clip"])
     taken = {v["clip"] for v in sets.values()}
     new_sets = sorted({k for _, k in slots} - set(sets))
-    hooks = pick_hooks(len(new_sets), h)
+    hooks = pick_hooks(len(new_sets), h, day, skip={v["hook"]["hook"] for v in sets.values()})
     if new_sets and not hooks:
-        raise RuntimeError("No hooks. Add hooks on the setup page.")
+        raise RuntimeError("No hooks for this day. Add hooks on the setup page (hooks pinned to other dates don't count).")
     skipped_sets = []
     for k, hk in zip(new_sets, hooks):
         cid = pick_clip(day, s, h, taken, rest=record)

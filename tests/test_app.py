@@ -235,3 +235,33 @@ def test_sets_share_hook_and_video_and_videos_rest_7_days():
     items8 = builder.build_day(d8, store.settings(), now=datetime(2030, 2, 8, 0, 0, tzinfo=tz))
     assert {r["clip"].split("@")[0] for r in items8} == used_d1
     assert builder.sets_needed(store.settings()) == (2, 14)
+
+
+def test_two_box_hooks():
+    from app import builder
+    from app.captions import youtube_title
+    h = 'Clip 1: "Aren\'t you embarrassed you\'re still replaying it…" Clip 2: Yes, actually, I am. 🙃'
+    assert builder.split_boxes(h) == ["Aren't you embarrassed you're still replaying it…", "Yes, actually, I am. 🙃"]
+    assert builder.split_boxes("Box 1: Things fun moms do… Box 2: 1. Dance") == ["Things fun moms do…", "1. Dance"]
+    assert builder.split_boxes("A plain hook") is None
+    assert youtube_title({"hook": "Box 1: One Box 2: Two"}) == "One Two"
+
+
+def test_hook_dates_and_favorites(tmp_path, monkeypatch):
+    from datetime import date
+    from app import builder, store
+    from app.main import parse_hooks, format_hooks
+    items = parse_hooks("A | cap a\nTurkey | cap t | 2026-11-26\n⭐ Winner | cap w\nB | cap b | mytag | fav")
+    assert items[1]["dates"] == ["2026-11-26"] and items[1]["tag"] == ""
+    assert items[2] == {"hook": "Winner", "caption": "cap w", "tag": "", "fav": True}
+    assert items[3]["tag"] == "mytag" and items[3]["fav"]
+    assert parse_hooks(format_hooks(items)) == items
+    monkeypatch.setattr(store, "hooks", lambda: items)
+    h = {"counter": 100, "hooks": {"A": 70, "Winner": 90, "B": 99}}
+    # pinned hook leads on its day and never shows up on other days
+    assert [x["hook"] for x in builder.pick_hooks(2, h, date(2026, 11, 26))] == ["Turkey", "A"]
+    assert "Turkey" not in [x["hook"] for x in builder.pick_hooks(3, h, date(2026, 11, 27))]
+    # favorite used at 90 counts as waiting longer than a plain hook used at 85
+    h["hooks"]["A"] = 85
+    assert builder.pick_hooks(1, h, date(2026, 11, 27))[0]["hook"] == "Winner"
+    assert builder.pick_hooks(1, h, date(2026, 11, 27), skip={"Winner"})[0]["hook"] == "A"
