@@ -17,7 +17,7 @@ BOX_FONT_CANDIDATES = ["/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bol
                        "/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf"] + FONT_CANDIDATES
 EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
 # Bump when the look of the hook text changes, so older reels can be remade in the new style.
-STYLE_VERSION = 2
+STYLE_VERSION = 3
 
 SPEEDS = [1.0, 1.08, 0.95, 1.12, 1.04]
 ZOOMS = [1.0, 1.03, 1.06, 1.09]
@@ -171,7 +171,7 @@ def boxes_png(boxes, out_path):
     """Each box as black text on a white rounded box, stacked in the upper middle, all on screen at once."""
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    maxw, padx, pady, gap = int(W * 0.62), 26, 16, 36
+    maxw, padx, pady, gap = int(W * 0.56), 22, 13, 30
 
     def layout(size):
         font = _font(size, BOX_FONT_CANDIDATES)
@@ -191,9 +191,9 @@ def boxes_png(boxes, out_path):
             wrapped.append(lines)
         return font, eh, wrapped
 
-    size = 44
+    size = 38
     font, eh, wrapped = layout(size)
-    while sum(len(x) for x in wrapped) > 9 and size > 34:
+    while sum(len(x) for x in wrapped) > 9 and size > 30:
         size -= 2
         font, eh, wrapped = layout(size)
     ascent, descent = font.getmetrics()
@@ -204,7 +204,7 @@ def boxes_png(boxes, out_path):
     for ls, bh in zip(wrapped, heights):
         bw = max(_rich_width(d, ln, font, eh) for ln in ls) + 2 * padx
         x0 = (W - bw) / 2
-        d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=20, fill=(255, 255, 255, 245))
+        d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=17, fill=(255, 255, 255, 245))
         ty = y + pady + (lh - (ascent + descent)) // 2
         for ln in ls:
             lw = _rich_width(d, ln, font, eh)
