@@ -22,6 +22,10 @@
   <form class="inline" method="post" action="/pause"><button class="quiet">Pause</button></form>
   {% endif %}
   <form class="inline" method="post" action="/run-now"><button class="quiet">Run now</button></form>
+  <form class="inline" method="post" action="/reels/restyle"><input type="hidden" name="which" value="next">
+    <button class="quiet">Remake next reel in new style</button></form>
+  <form class="inline" method="post" action="/reels/restyle"><input type="hidden" name="which" value="all">
+    <button class="quiet">Remake all upcoming reels in new style</button></form>
   <p class="hint">Reels go to Blotato {{ s.schedule_hours_ahead }} hours before their time. Until then you can skip them here.
     After that, pull them in Blotato: Posts → Scheduled → Move to drafts.</p>
 </div>

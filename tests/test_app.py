@@ -265,3 +265,61 @@ def test_hook_dates_and_favorites(tmp_path, monkeypatch):
     h["hooks"]["A"] = 85
     assert builder.pick_hooks(1, h, date(2026, 11, 27))[0]["hook"] == "Winner"
     assert builder.pick_hooks(1, h, date(2026, 11, 27), skip={"Winner"})[0]["hook"] == "A"
+
+
+def test_restyle_remakes_unsent_and_swaps_scheduled():
+    make_clip("clip01", 40)
+    store.write_json("hooks.json", [{"hook": "Box 1: Top line Box 2: Bottom line", "caption": "c1"}])
+    tz = ZoneInfo(TZ)
+    day = date(2030, 1, 7)
+    builder.build_day(day, store.settings(), now=datetime(2030, 1, 7, 9, 0, tzinfo=tz))
+    plan = builder.plan(day)
+    for r in plan:                       # pretend these were made before the style change
+        r["style"] = 1
+    builder.save_plan(day, plan)
+    f1 = builder.batch_dir(day) / "reel_01.mp4"
+    os.utime(f1, (0, 0))
+
+    class Fake(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.patched = []
+
+        def upload(self, path):
+            super().upload(path)
+            return f"https://cdn/x{self.uploads}.mp4"
+
+        def list_schedules(self):
+            return [{"id": "sch_1", "draft": {"accountId": "1", "content": {"text": "t", "platform": "instagram",
+                                                                         "mediaUrls": [plan_now()[0]["media_url"]]},
+                                              "target": {"targetType": "instagram"}}}]
+
+        def replace_media(self, sch, old, new):
+            self.patched.append((sch["id"], old, new))
+
+    def plan_now():
+        return builder.plan(day)
+
+    fake = Fake()
+    s = store.settings()
+    # schedule the 15:00 reel only (15:20 is outside a 5.2 h window at 9:50)
+    s2 = dict(s, schedule_hours_ahead=5.2)
+    runner.schedule_due(s2, client=fake, now_utc=datetime(2030, 1, 7, 9, 50, tzinfo=tz).astimezone(timezone.utc))
+    p = plan_now()
+    assert p[0]["platforms"]["instagram"]["status"] == "scheduled"
+    assert p[1]["platforms"]["instagram"]["status"] == "pending"
+    old_url = p[0]["media_url"]
+
+    # "next" only remakes the soonest one
+    n = runner.restyle(s, limit=1, client=fake, now_utc=datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc))
+    assert n == 1 and fake.patched and fake.patched[0][:2] == ("sch_1", old_url)
+    p = plan_now()
+    assert p[0]["style"] == builder.STYLE_VERSION and p[0]["media_url"] == fake.patched[0][2] != old_url
+    assert p[1]["style"] == 1
+    # the rest, then nothing left to do
+    assert runner.restyle(s, client=fake, now_utc=datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc)) == 1
+    assert all(r["style"] == builder.STYLE_VERSION for r in plan_now())
+    assert runner.restyle(s, client=fake, now_utc=datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc)) == 0
+    assert f1.stat().st_mtime > 0 and f1.stat().st_size > 1000      # file was replaced
+    # new reels are built in the current style and not remade
+    assert not list(builder.batch_dir(day).glob("*_new.*")) and not list(builder.batch_dir(day).glob("*_mux.*"))

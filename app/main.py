@@ -150,6 +150,15 @@ def run_now():
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/reels/restyle")
+def restyle(which: str = Form("all")):
+    limit = 1 if which == "next" else None
+    threading.Thread(target=runner.restyle_now, kwargs={"limit": limit}, daemon=True).start()
+    store.event("info", "Remaking the next upcoming reel in the new style." if limit else
+                        "Remaking upcoming reels in the new style. This can take a few minutes.")
+    return RedirectResponse("/", status_code=303)
+
+
 @app.post("/reel/{day}/{n}/skip")
 def skip(day: str, n: int):
     d = datetime.fromisoformat(day).date()

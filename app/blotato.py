@@ -66,6 +66,29 @@ class Client:
             raise BlotatoError(f"upload failed {r.status_code}: {r.text[:200]}")
         return j["publicUrl"]
 
+    def list_schedules(self):
+        """Every future scheduled post in Blotato."""
+        out, cursor = [], None
+        for _ in range(100):
+            params = {"limit": 50}
+            if cursor:
+                params["cursor"] = cursor
+            j = self._req("GET", "/schedules", params=params)
+            out += j.get("items") or []
+            cursor = j.get("cursor")
+            if not cursor:
+                break
+        return out
+
+    def replace_media(self, schedule, old_url, new_url):
+        """Swap one video URL on a scheduled post, keeping its time, text and target.
+        Blotato only takes the whole draft, so the rest is sent back unchanged."""
+        draft = dict(schedule["draft"])
+        content = dict(draft.get("content") or {})
+        content["mediaUrls"] = [new_url if u == old_url else u for u in content.get("mediaUrls") or []]
+        draft["content"] = content
+        self._req("PATCH", f"/schedules/{schedule['id']}", json={"patch": {"draft": draft}})
+
     def schedule(self, platform, account, reel, media_url, when_utc, settings):
         target = {"targetType": platform}
         if platform == "instagram":

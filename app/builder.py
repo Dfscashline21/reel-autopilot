@@ -16,6 +16,8 @@ FONT_CANDIDATES = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 BOX_FONT_CANDIDATES = ["/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
                        "/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf"] + FONT_CANDIDATES
 EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+# Bump when the look of the hook text changes, so older reels can be remade in the new style.
+STYLE_VERSION = 2
 
 SPEEDS = [1.0, 1.08, 0.95, 1.12, 1.04]
 ZOOMS = [1.0, 1.03, 1.06, 1.09]
@@ -486,7 +488,8 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
             items.append({"n": n, "file": fname, "thumb": f"reel_{n:02d}.jpg", "hook": hk["hook"],
                           "caption": hk.get("caption", ""), "tag": hk.get("tag", ""),
                           "local_date": day.isoformat(), "local_time": t, "clip": key, "set": k,
-                          "variant": variant, "skipped": False, "media_url": None, "platforms": plats})
+                          "variant": variant, "skipped": False, "media_url": None, "platforms": plats,
+                          "style": STYLE_VERSION})
             if record:
                 rec = h["windows"].setdefault(key, {"last": 0, "variants": []})
                 rec["last"] = h["counter"]
@@ -497,6 +500,28 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
         store.write_json("history.json", h)
         save_plan(day, sorted(existing + items, key=lambda r: r["local_time"]))
     return items
+
+
+def rerender(day, r, settings):
+    """Remake one built reel in the current text style: same hook, footage window, look and
+    music (the audio is copied from the old file). Replaces the reel's .mp4 and .jpg."""
+    out = batch_dir(day)
+    old = out / r["file"]
+    cid, start = r["clip"].rsplit("@", 1)
+    tmp = out / (r["file"].rsplit(".", 1)[0] + "_new.mp4")
+    render(cid, float(start), r["hook"], None, 0, int(r.get("variant", 0)), tmp, settings["reel_seconds"])
+    mux = out / (r["file"].rsplit(".", 1)[0] + "_mux.mp4")
+    res = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(tmp), "-i", str(old), "-map", "0:v",
+                          "-map", "1:a?", "-c", "copy", "-shortest", "-movflags", "+faststart", str(mux)],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr[-300:])
+    mux.replace(old)
+    tmp.unlink(missing_ok=True)
+    thumb_new = tmp.with_suffix(".jpg")
+    if thumb_new.exists():
+        thumb_new.replace(out / r.get("thumb", r["file"].rsplit(".", 1)[0] + ".jpg"))
+    r["style"] = STYLE_VERSION
 
 
 def build_previews(n=3):

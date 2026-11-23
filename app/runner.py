@@ -122,6 +122,93 @@ def schedule_due(settings, client=None, now_utc=None):
     return done
 
 
+def restyle(settings, limit=None, client=None, now_utc=None):
+    """Remake upcoming reels made in an older text style, soonest first.
+
+    Reels not yet in Blotato are just re-rendered. Reels already scheduled in Blotato are
+    re-rendered, uploaded again, and the new video is swapped onto the scheduled post, so its
+    time and caption stay the same. Reels within 15 minutes of posting are left alone.
+    """
+    tz = ZoneInfo(settings["timezone"])
+    now_utc = now_utc or datetime.now(timezone.utc)
+    soon = now_utc + timedelta(minutes=15)
+    root = store.DATA_DIR / "batches"
+    todo = []
+    for d in sorted(p.name for p in root.iterdir() if p.is_dir()) if root.exists() else []:
+        try:
+            day = date.fromisoformat(d)
+        except ValueError:
+            continue
+        for r in builder.plan(day) or []:
+            if r.get("skipped") or r.get("style", 1) >= builder.STYLE_VERSION:
+                continue
+            if reel_when(r, tz)[1] <= soon:
+                continue
+            todo.append((reel_when(r, tz)[1], day, r["n"]))
+    todo.sort()
+    if limit:
+        todo = todo[:limit]
+    if not todo:
+        store.event("info", "No upcoming reels need remaking; they already use the current style.")
+        return 0
+    client = client or (blotato.Client(settings["blotato_api_key"]) if settings.get("blotato_api_key") else None)
+    schedules = None
+    done = 0
+    for _, day, n in todo:
+        items = builder.plan(day) or []
+        r = next((x for x in items if x["n"] == n), None)
+        if r is None:
+            continue
+        local = reel_when(r, tz)[0]
+        label = f"{local:%a %-I:%M %p} \"{r['hook'][:40]}\""
+        in_blotato = any(st.get("status") == "scheduled" for st in r["platforms"].values())
+        try:
+            if not in_blotato:
+                builder.rerender(day, r, settings)
+                builder.save_plan(day, items)
+                done += 1
+                store.event("build", f"Remade {label} in the new style.")
+                continue
+            if schedules is None:
+                schedules = client.list_schedules()
+            old_url = r.get("media_url")
+            matches = [s for s in schedules
+                       if old_url and old_url in ((s.get("draft") or {}).get("content") or {}).get("mediaUrls", [])]
+            if not matches:
+                store.event("warn", f"Couldn't find {label} among Blotato's scheduled posts, so it was left as is.")
+                continue
+            builder.rerender(day, r, settings)
+            new_url = client.upload(str(builder.batch_dir(day) / r["file"]))
+            failed = []
+            for sch in matches:
+                try:
+                    client.replace_media(sch, old_url, new_url)
+                except blotato.BlotatoError as e:
+                    failed.append(str(e)[:120])
+                time.sleep(1)
+            r["media_url"] = new_url
+            builder.save_plan(day, items)
+            if failed:
+                store.event("error", f"Remade {label}, but Blotato refused the swap on {len(failed)} of "
+                                     f"{len(matches)} posts: {failed[0]}")
+            else:
+                done += 1
+                store.event("scheduled", f"Remade {label} and swapped it into {len(matches)} scheduled "
+                                         f"Blotato post(s).")
+        except (blotato.BlotatoError, RuntimeError, OSError) as e:
+            store.event("error", f"Couldn't remake {label}: {str(e)[:200]}")
+    return done
+
+
+def restyle_now(limit=None):
+    """Run restyle without clashing with the autopilot's own tick."""
+    with _tick_lock:
+        try:
+            restyle(store.settings(), limit=limit)
+        except Exception as e:  # noqa: BLE001
+            store.event("error", f"Remaking reels failed: {str(e)[:250]}")
+
+
 def cleanup(settings, now=None):
     tz = ZoneInfo(settings["timezone"])
     today = (now or datetime.now(tz)).date()
