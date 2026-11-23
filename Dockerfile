@@ -1,7 +1,9 @@
 FROM python:3.12-slim
 
-# ffmpeg renders the reels; the DejaVu font draws the hook text.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
+# ffmpeg renders the reels; DejaVu draws the hook text, Noto Color Emoji the emoji in two-box hooks,
+# and libfribidi lets Pillow shape emoji sequences (skin tones, ZWJ) correctly.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fonts-dejavu-extra \
+    fonts-noto-color-emoji libfribidi0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv

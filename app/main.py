@@ -182,8 +182,7 @@ def setup(request: Request, msg: str = ""):
             r = info.get(f.name, {})
             previews.append({"file": f.name, "v": int(f.stat().st_mtime), "hook": r.get("hook", ""),
                              "video": names.get((r.get("clip") or "").split("@")[0], "")})
-    hooks_text = "\n".join(" | ".join(x for x in (h.get("hook", ""), h.get("caption", ""), h.get("tag", "")) if x)
-                           for h in store.hooks())
+    hooks_text = format_hooks(store.hooks())
     return templates.TemplateResponse(request, "setup.html", {
         "s": s, "clips": clips, "windows": {c["id"]: len(media.windows(c, s)) for c in clips},
         "music": [p.name for p in media.music_tracks()], "hooks_text": hooks_text,
@@ -261,21 +260,73 @@ async def clip_windows(request: Request, cid: str):
     return back("clips")
 
 
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_FAV = {"fav", "favorite", "favourite", "\u2b50", "\u2b50\ufe0f"}
+
+
+def _hook_item(hook, caption="", extras=(), dates=(), fav=False):
+    """One hook: the text on screen, its caption, an optional tag, pinned dates and the favorite mark."""
+    hook = hook.strip()
+    if hook.startswith("\u2b50"):            # "⭐ hook text" marks a favorite too
+        hook, fav = hook.lstrip("\u2b50\ufe0f ").strip(), True
+    tag, dates = "", list(dates)
+    for x in (e.strip() for e in extras):
+        days = [d.strip() for d in x.split(",")]
+        if not x:
+            continue
+        if all(_DATE.match(d) for d in days):
+            dates += days
+        elif x.lower() in _FAV:
+            fav = True
+        elif not tag:
+            tag = x
+    item = {"hook": hook, "caption": caption.strip(), "tag": tag}
+    if dates:
+        item["dates"] = sorted(set(dates))
+    if fav:
+        item["fav"] = True
+    return item
+
+
 def parse_hooks(text):
+    """Hooks, one per line: hook | caption | tag, plus optional extra fields in any order:
+    a date (2026-11-26, or several separated by commas) pins the hook to those days only,
+    and "fav" or a star marks a favorite that comes around about twice as often."""
     text = text.strip()
     if text.startswith("["):
         data = json.loads(text)
-        return [{"hook": str(d.get("hook", "")).strip(), "caption": str(d.get("caption", "")).strip(),
-                 "tag": str(d.get("tag", "")).strip()} for d in data if str(d.get("hook", "")).strip()]
+        out = []
+        for d in data:
+            if not str(d.get("hook", "")).strip():
+                continue
+            dates = d.get("dates") or ([d["date"]] if d.get("date") else [])
+            out.append(_hook_item(str(d.get("hook", "")), str(d.get("caption", "")), [str(d.get("tag", ""))],
+                                  [str(x) for x in dates], bool(d.get("fav"))))
+        return out
     out, seen = [], set()
     for line in text.splitlines():
         parts = [p.strip() for p in line.split("|")]
-        if not parts or not parts[0] or parts[0].lower() in seen:
+        if not parts or not parts[0]:
             continue
-        seen.add(parts[0].lower())
-        out.append({"hook": parts[0], "caption": parts[1] if len(parts) > 1 else "",
-                    "tag": parts[2] if len(parts) > 2 else ""})
+        item = _hook_item(parts[0], parts[1] if len(parts) > 1 else "", parts[2:])
+        key = (item["hook"].lower(), tuple(item.get("dates", [])))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
     return out
+
+
+def format_hooks(items):
+    """The saved hooks as text in the same format parse_hooks reads."""
+    lines = []
+    for h in items:
+        extra = [h.get("tag", "")] + [",".join(h.get("dates", []))] + (["fav"] if h.get("fav") else [])
+        fields = [h.get("hook", ""), h.get("caption", "")] + [x for x in extra if x]
+        while len(fields) > 1 and not fields[-1]:
+            fields.pop()
+        lines.append(" | ".join(fields))
+    return "\n".join(lines)
 
 
 @app.post("/setup/hooks")

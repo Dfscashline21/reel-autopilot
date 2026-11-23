@@ -61,5 +61,6 @@ def for_platform(platform, reel, settings):
 
 
 def youtube_title(reel):
-    t = (reel.get("hook") or reel.get("caption") or "Short").strip()
+    from .builder import plain_hook
+    t = (plain_hook(reel.get("hook")) or reel.get("caption") or "Short").strip()
     return t if len(t) <= 100 else t[:97].rsplit(" ", 1)[0] + "..."
