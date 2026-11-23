@@ -169,7 +169,7 @@ def boxes_png(boxes, out_path):
     """Each box as black text on a white rounded box, stacked in the upper middle, all on screen at once."""
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    maxw, padx, pady, gap = int(W * 0.74), 34, 22, 56
+    maxw, padx, pady, gap = int(W * 0.62), 26, 16, 36
 
     def layout(size):
         font = _font(size, BOX_FONT_CANDIDATES)
@@ -189,10 +189,10 @@ def boxes_png(boxes, out_path):
             wrapped.append(lines)
         return font, eh, wrapped
 
-    size = 64
+    size = 44
     font, eh, wrapped = layout(size)
-    while sum(len(x) for x in wrapped) > 10 and size > 44:
-        size -= 4
+    while sum(len(x) for x in wrapped) > 9 and size > 34:
+        size -= 2
         font, eh, wrapped = layout(size)
     ascent, descent = font.getmetrics()
     lh = int(size * 1.22)
@@ -202,7 +202,7 @@ def boxes_png(boxes, out_path):
     for ls, bh in zip(wrapped, heights):
         bw = max(_rich_width(d, ln, font, eh) for ln in ls) + 2 * padx
         x0 = (W - bw) / 2
-        d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=26, fill=(255, 255, 255, 245))
+        d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=20, fill=(255, 255, 255, 245))
         ty = y + pady + (lh - (ascent + descent)) // 2
         for ln in ls:
             lw = _rich_width(d, ln, font, eh)
