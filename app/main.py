@@ -234,24 +234,68 @@ def setup_blotato(api_key: str = Form("")):
     return back("blotato")
 
 
-@app.post("/setup/zernio")
-def setup_zernio(api_key: str = Form("")):
-    key = api_key.strip() or store.settings()["zernio_api_key"]
-    try:
-        accts = zernio.Client(key).accounts()
-    except Exception as e:  # noqa: BLE001
-        return RedirectResponse(f"/setup?msg=Zernio said: {str(e)[:120]}#zernio", status_code=303)
+def _refresh_zernio(key):
+    accts = zernio.Client(key).accounts()
     old = store.settings().get("accounts") or {}
     merged = {p: a for p, a in old.items() if p not in accts}
     for p, a in accts.items():
         a["enabled"] = old.get(p, {}).get("enabled", True)
         merged[p] = a
     store.save_settings(zernio_api_key=key, accounts=merged)
+    return accts
+
+
+@app.post("/setup/zernio")
+def setup_zernio(api_key: str = Form("")):
+    key = api_key.strip() or store.settings()["zernio_api_key"]
+    try:
+        accts = _refresh_zernio(key)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"/setup?msg=Zernio said: {str(e)[:120]}#zernio", status_code=303)
     store.event("info", f"Zernio connected: {', '.join(blotato.NAMES[p] for p in accts) or 'no accounts yet'}. "
                         "Instagram and TikTok now post through Zernio.")
     if songs.songs():
         _check_songs_later()
     return back("zernio")
+
+
+def _public_base(request: Request):
+    host = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    return f"https://{host}" if host else str(request.base_url).rstrip("/")
+
+
+@app.get("/setup/zernio/instagram-facebook")
+def zernio_instagram_facebook(request: Request):
+    """Send the person to Zernio to connect Instagram through Facebook Login (needed for music)."""
+    s = store.settings()
+    if not s.get("zernio_api_key"):
+        return back("zernio", "Connect Zernio with your API key first.")
+    ig = (s.get("accounts") or {}).get("instagram") or {}
+    old = ig.get("id") if ig.get("via") == "zernio" else None
+    try:
+        url = zernio.Client(s["zernio_api_key"]).instagram_facebook_url(
+            _public_base(request) + "/setup/zernio/return", ig.get("profile") or None, old)
+    except Exception as e:  # noqa: BLE001
+        return back("zernio", f"Zernio said: {str(e)[:150]}")
+    return RedirectResponse(url, status_code=303)
+
+
+@app.get("/setup/zernio/return")
+def zernio_return():
+    """Zernio sends the person back here after connecting; pick up the new account."""
+    s = store.settings()
+    try:
+        accts = _refresh_zernio(s["zernio_api_key"])
+    except Exception as e:  # noqa: BLE001
+        return back("zernio", f"Zernio said: {str(e)[:150]}")
+    ig = accts.get("instagram") or {}
+    if ig.get("login") in ("facebook_login", ""):     # "" = Zernio didn't say; the song check will tell
+        store.event("info", f"Instagram reconnected{(' · ' + ig['username']) if ig.get('username') else ''}.")
+        if songs.songs():
+            _check_songs_later()
+        return back("songs", "Instagram reconnected. Checking your songs; refresh in a minute.")
+    return back("zernio", "Instagram still isn't connected through Facebook. Make sure your Instagram is linked "
+                          "to a Facebook Page, then try again.")
 
 
 def _check_songs_later():

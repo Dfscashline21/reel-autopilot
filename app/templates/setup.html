@@ -20,6 +20,16 @@
   {% set zacc = s.accounts.items() | selectattr("1.via", "equalto", "zernio") | list if s.accounts else [] %}
   {% if zacc %}<p class="hint">Through Zernio: {% for p, a in zacc %}{{ names[p] }}{% if a.username %} · {{ a.username }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
   {% elif s.zernio_api_key %}<p class="warn">No Instagram or TikTok account is connected in Zernio yet. Connect them there, then press Refresh accounts.</p>{% endif %}
+  {% if s.zernio_api_key %}
+  {% set zig = s.accounts.instagram if s.accounts and s.accounts.instagram and s.accounts.instagram.via == 'zernio' else None %}
+  {% if not zig or zig.login != 'facebook_login' %}
+  <p class="{{ 'warn' if zig else 'hint' }}">{% if zig %}Your Instagram is connected with Instagram's own login, so it can't use
+    Instagram's music.{% endif %} Instagram's music needs Instagram connected through Facebook. Your Instagram must be a
+    business or creator account linked to a Facebook Page (Instagram app: Edit profile → Page → Connect or create).
+    Zernio's dashboard only offers Instagram's login, so use this button instead.</p>
+  <a class="btn" href="/setup/zernio/instagram-facebook">Connect Instagram through Facebook</a>
+  {% else %}<p class="hint">Instagram is connected through Facebook ✓ — its music can be used.</p>{% endif %}
+  {% endif %}
 </section>
 
 <section class="card {% if has_accounts %}done{% endif %}" id="blotato">

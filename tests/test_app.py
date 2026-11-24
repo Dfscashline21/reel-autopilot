@@ -549,3 +549,64 @@ def test_clear_scheduled_reels_by_platform():
     # Nothing within 10 minutes of posting is touched
     late = datetime(2030, 1, 7, 14, 55, tzinfo=tz).astimezone(timezone.utc)
     assert runner.clear_platform(store.settings(), "instagram", client=fb, zclient=fz, now_utc=late) == (1, 0)
+
+
+def test_zernio_instagram_through_facebook():
+    import httpx
+    from app import zernio
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        if req.url.path.endswith("/accounts"):
+            return httpx.Response(200, json={"accounts": [
+                {"_id": "old", "platform": "instagram", "username": "me", "loginMethod": "instagram_login",
+                 "profileId": {"_id": "prof1"}},
+                {"_id": "new", "platform": "instagram", "username": "me", "loginMethod": "facebook_login",
+                 "profileId": "prof1"},
+                {"_id": "t1", "platform": "tiktok", "username": "me"}]})
+        if req.url.path.endswith("/connect/instagram"):
+            return httpx.Response(200, json={"authUrl": "https://facebook.example/auth", "state": "x"})
+        return httpx.Response(404, json={"error": "nope"})
+    c = zernio.Client("k", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    accts = c.accounts()
+    assert accts["instagram"]["id"] == "new" and accts["instagram"]["login"] == "facebook_login"
+    assert accts["instagram"]["profile"] == "prof1" and accts["tiktok"]["id"] == "t1"
+    url = c.instagram_facebook_url("https://app.example/setup/zernio/return", "prof1", "old")
+    q = dict(seen[-1].url.params)
+    assert url == "https://facebook.example/auth"
+    assert q == {"profileId": "prof1", "loginMethod": "facebook_login",
+                 "redirect_url": "https://app.example/setup/zernio/return", "reconnectAccountId": "old"}
+    assert seen[-1].headers["authorization"] == "Bearer k"
+
+
+def test_instagram_facebook_button_and_return(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main, zernio
+    calls = {}
+
+    class FakeC:
+        def __init__(self, key):
+            calls["key"] = key
+
+        def instagram_facebook_url(self, redirect, profile, reconnect):
+            calls["args"] = (redirect, profile, reconnect)
+            return "https://facebook.example/auth"
+
+        def accounts(self):
+            return {"instagram": {"id": "new", "username": "me", "via": "zernio", "login": "facebook_login",
+                                  "profile": "prof1"}}
+    monkeypatch.setattr(zernio, "Client", FakeC)
+    monkeypatch.setenv("RAILWAY_PUBLIC_DOMAIN", "reel.example")
+    store.save_settings(zernio_api_key="zk", accounts={"instagram": {"id": "old", "enabled": True, "via": "zernio",
+                                                                     "login": "instagram_login", "profile": "prof1"}})
+    with TestClient(main.app) as c:
+        c.post("/login", data={"pw": "pw"})
+        assert "Connect Instagram through Facebook" in c.get("/setup").text
+        r = c.get("/setup/zernio/instagram-facebook", follow_redirects=False)
+        assert r.headers["location"] == "https://facebook.example/auth"
+        assert calls["args"] == ("https://reel.example/setup/zernio/return", "prof1", "old")
+        r = c.get("/setup/zernio/return", follow_redirects=False)
+        assert "#songs" in r.headers["location"]
+        assert store.settings()["accounts"]["instagram"]["id"] == "new"
+        assert "connected through Facebook ✓" in c.get("/setup").text

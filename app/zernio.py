@@ -43,15 +43,39 @@ class Client:
         raise ZernioError("gave up after retries")
 
     def accounts(self):
-        """{platform: {"id", "username", "via"}} for the first active Instagram and TikTok account."""
+        """{platform: {"id", "username", "via", "login", "profile"}} for one active Instagram and
+        TikTok account. An Instagram account connected through Facebook (the only kind that can
+        use Instagram's music) is preferred over one connected with Instagram's own login."""
         out = {}
         for a in self._req("GET", "/accounts").get("accounts", []):
             p = a.get("platform")
-            if p not in PLATFORMS or p in out or a.get("isActive") is False:
+            if p not in PLATFORMS or a.get("isActive") is False:
                 continue
+            login = a.get("loginMethod") or ""
+            if p in out and not (p == "instagram" and login == "facebook_login"
+                                 and out[p].get("login") != "facebook_login"):
+                continue
+            prof = a.get("profileId")
             out[p] = {"id": str(a.get("_id")), "username": a.get("username") or a.get("displayName") or "",
-                      "via": "zernio"}
+                      "via": "zernio", "login": login,
+                      "profile": str((prof.get("_id") if isinstance(prof, dict) else prof) or "")}
         return out
+
+    def profiles(self):
+        return self._req("GET", "/profiles").get("profiles") or []
+
+    def instagram_facebook_url(self, redirect_url, profile_id=None, reconnect_id=None):
+        """Where to send the person to connect Instagram through Facebook Login. Zernio's page
+        then asks which Facebook Page (and its linked Instagram) to use."""
+        if not profile_id:
+            profs = self.profiles()
+            if not profs:
+                raise ZernioError("no Zernio profile found")
+            profile_id = str(profs[0].get("_id"))
+        params = {"profileId": profile_id, "loginMethod": "facebook_login", "redirect_url": redirect_url}
+        if reconnect_id:
+            params["reconnectAccountId"] = reconnect_id
+        return self._req("GET", "/connect/instagram", params=params)["authUrl"]
 
     def upload(self, file_path):
         """Upload a local video; returns the public URL to post from (kept 7 days, copied when posted)."""
