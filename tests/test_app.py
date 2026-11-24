@@ -527,6 +527,12 @@ def test_clear_scheduled_reels_by_platform():
     plan = builder.plan(day)
     assert {r["platforms"]["instagram"]["status"] for r in plan} == {"scheduled"}
     assert {r["platforms"]["youtube"]["status"] for r in plan} == {"cleared"}      # stays cleared
+    # Send again brings back reels cleared earlier
+    assert runner.clear_platform(store.settings(), "youtube", resend=True, client=fb, zclient=fz,
+                                 now_utc=now) == (2, 0)
+    assert {r["platforms"]["youtube"]["status"] for r in builder.plan(day)} == {"pending"}
+    assert runner.schedule_due(store.settings(), client=fb, zclient=fz, now_utc=now) == 2
+    assert {r["platforms"]["youtube"]["status"] for r in builder.plan(day)} == {"scheduled"}
     # Nothing within 10 minutes of posting is touched
     late = datetime(2030, 1, 7, 14, 55, tzinfo=tz).astimezone(timezone.utc)
     assert runner.clear_platform(store.settings(), "instagram", client=fb, zclient=fz, now_utc=late) == (1, 0)

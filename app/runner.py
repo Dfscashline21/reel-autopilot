@@ -269,7 +269,8 @@ def clear_platform(settings, platform, resend=False, client=None, zclient=None, 
     Posts already handed to Zernio or Blotato are cancelled there. With resend, the reels go
     back to pending, so the autopilot sends them again with the current setup (for example
     through Zernio with a song); without it they're marked cleared and won't post on that
-    platform. Other platforms are untouched. Reels within 10 minutes of posting are left alone.
+    platform. Resend also brings back reels cleared earlier. Other platforms are untouched.
+    Reels within 10 minutes of posting are left alone.
     Returns (cleared, failed)."""
     tz = ZoneInfo(settings["timezone"])
     now_utc = now_utc or datetime.now(timezone.utc)
@@ -287,7 +288,8 @@ def clear_platform(settings, platform, resend=False, client=None, zclient=None, 
         changed = False
         for r in items:
             st = r["platforms"].get(platform)
-            if not st or r.get("skipped") or st.get("status") not in ("scheduled", "pending", "failed"):
+            ok = ("scheduled", "pending", "failed") + (("cleared",) if resend else ())
+            if not st or r.get("skipped") or st.get("status") not in ok:
                 continue
             if reel_when(r, tz)[1] <= soon:
                 continue
