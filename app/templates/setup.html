@@ -6,10 +6,26 @@
 {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
 
 {% set has_accounts = s.accounts and (s.accounts.values() | selectattr("enabled") | list) %}
+<section class="card {% if s.zernio_api_key %}done{% endif %}" id="zernio">
+  <div class="step"><span class="num">1</span><h2>Connect Zernio (Instagram and TikTok)</h2></div>
+  <p class="hint">Zernio posts to Instagram and TikTok and adds a song from your list (step 4b), with the video's own
+    sound muted. In Zernio: connect Instagram using the <b>Facebook</b> option, and TikTok using the
+    <b>TikTok for Business</b> option (both are needed for music). Then create an API key and paste it here.
+    Platforms connected in Zernio post through Zernio; everything else posts through Blotato.</p>
+  <form method="post" action="/setup/zernio">
+    <label for="zk">Zernio API key</label>
+    <input id="zk" name="api_key" type="password" placeholder="{{ 'Saved. Paste a new key to replace it.' if s.zernio_api_key else 'Paste your key' }}">
+    <button>{{ 'Refresh accounts' if s.zernio_api_key else 'Connect' }}</button>
+  </form>
+  {% set zacc = s.accounts.items() | selectattr("1.via", "equalto", "zernio") | list if s.accounts else [] %}
+  {% if zacc %}<p class="hint">Through Zernio: {% for p, a in zacc %}{{ names[p] }}{% if a.username %} · {{ a.username }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+  {% elif s.zernio_api_key %}<p class="warn">No Instagram or TikTok account is connected in Zernio yet. Connect them there, then press Refresh accounts.</p>{% endif %}
+</section>
+
 <section class="card {% if has_accounts %}done{% endif %}" id="blotato">
-  <div class="step"><span class="num">1</span><h2>Connect Blotato</h2></div>
-  <p class="hint">Blotato does the posting. In Blotato: connect Instagram, TikTok, YouTube and Facebook under Accounts,
-    then copy your API key from Settings → API. Paste it here.</p>
+  <div class="step"><span class="num">1b</span><h2>Connect Blotato (YouTube and the rest)</h2></div>
+  <p class="hint">Blotato posts to every platform that isn't connected through Zernio. In Blotato: connect your accounts
+    under Accounts, then copy your API key from Settings → API. Paste it here.</p>
   <form method="post" action="/setup/blotato">
     <label for="k">Blotato API key</label>
     <input id="k" name="api_key" type="password" placeholder="{{ 'Saved. Paste a new key to replace it.' if s.blotato_api_key else 'Paste your key' }}">
@@ -21,7 +37,7 @@
     <div class="chips">
     {% for p, a in s.accounts.items() %}
       <label class="chip"><input type="checkbox" name="on_{{ p }}" value="1" {% if a.enabled %}checked{% endif %}>
-        {{ names[p] }}{% if a.username %} · {{ a.username }}{% endif %}</label>
+        {{ names[p] }}{% if a.username %} · {{ a.username }}{% endif %} <span class="hint">({{ 'Zernio' if a.via == 'zernio' else 'Blotato' }})</span></label>
     {% endfor %}
     </div>
     {% if s.accounts.instagram %}
@@ -83,8 +99,9 @@ Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment"
 
 <section class="card {% if music %}done{% endif %}" id="music">
   <div class="step"><span class="num">4</span><h2>Add music (optional)</h2></div>
-  <p class="hint">MP3s you have the rights to use. Each reel uses a different track or a different part of one.
-    Without music, reels are silent and you can add trending audio in the app instead.</p>
+  <p class="hint">MP3s you have the rights to use, built into each reel. Each reel uses a different track or a different part of one.
+    Instagram and TikTok posted through Zernio mute this and play a song from your list instead (step 4b);
+    other platforms keep it. Without music, reels are silent.</p>
   <form method="post" action="/setup/music" enctype="multipart/form-data">
     <input type="file" name="files" accept="audio/*" multiple>
     <button>Upload music</button>
@@ -93,6 +110,45 @@ Name a houseplant. I'll tell you why it's dying. | Comment one below. | comment"
     {% for m in music %}<span class="chip">{{ m }}
       <form class="inline" method="post" action="/music/{{ m }}/delete"><button class="small quiet">×</button></form></span>{% endfor %}
   </div>{% endif %}
+</section>
+
+<section class="card {% if songs %}done{% endif %}" id="songs">
+  <div class="step"><span class="num">4b</span><h2>Songs for Instagram and TikTok</h2></div>
+  <p class="hint">Find songs in the Instagram app (tap the song name on a reel to see how many reels use it). Add one per
+    line: <b>Title — Artist</b>, or paste the song's link (Share → Copy link). For the most exact match use both:
+    <b>link | Title — Artist</b>. Start a line with ⭐ (or end it with <b>| fav</b>) to use a song about twice as often.
+    Each Instagram and TikTok reel gets the next song, with the video's own sound muted. Needs Zernio (step 1).</p>
+  <form method="post" action="/setup/songs">
+    <textarea name="text" placeholder="What Was I Made For — Billie Eilish
+https://www.instagram.com/reels/audio/1234567890 | Dancing On My Own — Calum Scott
+⭐ Golden Hour — JVKE">{{ songs_text }}</textarea>
+    <button>Save and check songs</button>
+  </form>
+  {% if songs %}
+  <table>
+    <tr><th>Song</th><th>Instagram</th><th>TikTok</th></tr>
+    {% for x in songs %}
+    <tr>
+      <td>{% if x.fav %}⭐ {% endif %}{{ x.title or x.line }}{% if x.artist %} — {{ x.artist }}{% endif %}</td>
+      <td>{% if x.ig %}<span class="ok">✓</span> {{ x.ig.title }}{% if x.ig.artist %} — {{ x.ig.artist }}{% endif %}
+          {% if x.ig.preview %}<a href="{{ x.ig.preview }}" target="_blank">listen</a>{% endif %}
+          {% if x.ig_note and x.ig_note != 'Found' %}<span class="hint">{{ x.ig_note }}</span>{% endif %}
+        {% elif x.ig_note %}<span class="bad">✗</span> <span class="hint">{{ x.ig_note }}</span>{% else %}<span class="hint">Checking…</span>{% endif %}</td>
+      <td>{% if x.tt %}<span class="ok">✓</span> {{ x.tt.title }}{% if x.tt.artist %} — {{ x.tt.artist }}{% endif %}
+        {% elif x.tt_note %}<span class="bad">✗</span> <span class="hint">{{ x.tt_note }}</span>{% else %}<span class="hint">Checking…</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="hint">TikTok only shares its current list of trending licensed songs, so a song matches on TikTok only while it's on that list.</p>
+  {% endif %}
+  <form method="post" action="/setup/songs/fallback">
+    <label for="fb">When no song from the list is available on a platform</label>
+    <select id="fb" name="fallback">
+      <option value="trending" {% if s.song_fallback != 'none' %}selected{% endif %}>Use one of that platform's trending songs</option>
+      <option value="none" {% if s.song_fallback == 'none' %}selected{% endif %}>Post with the video's own sound</option>
+    </select>
+    <button class="quiet">Save</button>
+  </form>
 </section>
 
 <section class="card {% if s.times %}done{% endif %}" id="schedule">

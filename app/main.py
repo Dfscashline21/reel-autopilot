@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import threading
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import blotato, builder, media, runner, store
+from . import blotato, builder, media, runner, songs, store, zernio
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
@@ -50,8 +51,9 @@ app.add_middleware(SessionMiddleware, secret_key=store.secret_key(), max_age=60 
                    https_only=os.environ.get("COOKIE_SECURE", "1") == "1", same_site="lax")
 
 
-def back(anchor=""):
-    return RedirectResponse(f"/setup{('#' + anchor) if anchor else ''}", status_code=303)
+def back(anchor="", msg=""):
+    q = f"?msg={quote(msg)}" if msg else ""
+    return RedirectResponse(f"/setup{q}{('#' + anchor) if anchor else ''}", status_code=303)
 
 
 # ── login ─────────────────────────────────────────────────────────────────────
@@ -197,6 +199,7 @@ def setup(request: Request, msg: str = ""):
         "music": [p.name for p in media.music_tracks()], "hooks_text": hooks_text,
         "hook_count": len(store.hooks()), "previews": previews, "preview": _preview,
         "missing": runner.ready(s), "names": blotato.NAMES, "msg": msg,
+        "songs": songs.songs(), "songs_text": songs.format_list(songs.songs()),
         "zones": sorted(z for z in available_timezones() if "/" in z and not z.startswith("Etc"))})
 
 
@@ -208,11 +211,73 @@ def setup_blotato(api_key: str = Form("")):
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(f"/setup?msg=Blotato said: {str(e)[:120]}#blotato", status_code=303)
     old = store.settings().get("accounts") or {}
+    merged = {p: a for p, a in old.items() if a.get("via") == "zernio"}   # Zernio keeps its platforms
     for p, a in accts.items():
+        if p in merged:
+            continue
+        a["via"] = "blotato"
         a["enabled"] = old.get(p, {}).get("enabled", p != "twitter")
-    store.save_settings(blotato_api_key=key, accounts=accts)
+        merged[p] = a
+    store.save_settings(blotato_api_key=key, accounts=merged)
     store.event("info", f"Blotato connected: {', '.join(blotato.NAMES[p] for p in accts) or 'no accounts yet'}.")
     return back("blotato")
+
+
+@app.post("/setup/zernio")
+def setup_zernio(api_key: str = Form("")):
+    key = api_key.strip() or store.settings()["zernio_api_key"]
+    try:
+        accts = zernio.Client(key).accounts()
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(f"/setup?msg=Zernio said: {str(e)[:120]}#zernio", status_code=303)
+    old = store.settings().get("accounts") or {}
+    merged = {p: a for p, a in old.items() if p not in accts}
+    for p, a in accts.items():
+        a["enabled"] = old.get(p, {}).get("enabled", True)
+        merged[p] = a
+    store.save_settings(zernio_api_key=key, accounts=merged)
+    store.event("info", f"Zernio connected: {', '.join(blotato.NAMES[p] for p in accts) or 'no accounts yet'}. "
+                        "Instagram and TikTok now post through Zernio.")
+    if songs.songs():
+        _check_songs_later()
+    return back("zernio")
+
+
+def _check_songs_later():
+    def run():
+        s = store.settings()
+        try:
+            items = songs.resolve(songs.songs(), zernio.Client(s["zernio_api_key"]), s.get("accounts") or {})
+            songs.save(items)
+            ig = sum(1 for x in items if x.get("ig"))
+            tt = sum(1 for x in items if x.get("tt"))
+            store.event("info", f"Songs checked: {ig} of {len(items)} found on Instagram, {tt} on TikTok.")
+        except Exception as e:  # noqa: BLE001
+            store.event("error", f"Checking songs failed: {str(e)[:200]}")
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.post("/setup/songs")
+async def setup_songs(text: str = Form("")):
+    old = {(x.get("link_id") or x["line"]): x for x in songs.songs()}
+    items = songs.parse(text)
+    for x in items:          # keep earlier lookups until the new check finishes
+        prev = old.get(x.get("link_id") or x["line"])
+        if prev:
+            for k in ("ig", "ig_note", "tt", "tt_note"):
+                if k in prev:
+                    x[k] = prev[k]
+    songs.save(items)
+    if items and store.settings().get("zernio_api_key"):
+        _check_songs_later()
+        return back("songs", f"Saved {len(items)} songs. Checking them on Instagram and TikTok; refresh in a minute.")
+    return back("songs", f"Saved {len(items)} songs.")
+
+
+@app.post("/setup/songs/fallback")
+def setup_song_fallback(fallback: str = Form("trending")):
+    store.save_settings(song_fallback=fallback if fallback in ("trending", "none") else "trending")
+    return back("songs")
 
 
 @app.post("/setup/platforms")

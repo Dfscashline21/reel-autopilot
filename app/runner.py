@@ -1,11 +1,11 @@
-"""The autopilot: every few minutes, keep reels built ahead and hand due ones to Blotato."""
+"""The autopilot: every few minutes, keep reels built ahead and hand due ones to Zernio or Blotato."""
 import shutil
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import blotato, builder, media, store
+from . import blotato, builder, media, songs, store, zernio
 
 TICK_SECONDS = 300
 LEAD = timedelta(minutes=5)
@@ -21,8 +21,11 @@ def reel_when(reel, tz):
 def ready(settings):
     """What's missing before Start can work (empty list = ready)."""
     missing = []
-    if not settings.get("blotato_api_key"):
+    on = [a for a in (settings.get("accounts") or {}).values() if a.get("enabled")]
+    if any(a.get("via", "blotato") == "blotato" for a in on) and not settings.get("blotato_api_key"):
         missing.append("Blotato API key")
+    if any(a.get("via") == "zernio" for a in on) and not settings.get("zernio_api_key"):
+        missing.append("Zernio API key")
     if not any(a.get("enabled") for a in (settings.get("accounts") or {}).values()):
         missing.append("at least one connected platform")
     if not any(c.get("status") == "ready" for c in store.clips()):
@@ -61,13 +64,30 @@ def build_ahead(settings, now=None):
     return built
 
 
-def schedule_due(settings, client=None, now_utc=None):
-    """Upload + schedule every reel whose time is within the hand-off window."""
+NAMES = blotato.NAMES
+
+
+def _clients(settings, client=None, zclient=None):
+    """{"blotato": Client|None, "zernio": Client|None}; tests pass fakes."""
+    return {"blotato": client or (blotato.Client(settings["blotato_api_key"])
+                                  if settings.get("blotato_api_key") else None),
+            "zernio": zclient or (zernio.Client(settings["zernio_api_key"])
+                                  if settings.get("zernio_api_key") else None)}
+
+
+def _url_key(via):
+    return "zernio_url" if via == "zernio" else "media_url"
+
+
+def schedule_due(settings, client=None, now_utc=None, zclient=None):
+    """Upload + schedule every reel whose time is within the hand-off window.
+    Instagram and TikTok connected through Zernio get a song from the list, with the
+    video's own sound muted."""
     tz = ZoneInfo(settings["timezone"])
     now_utc = now_utc or datetime.now(timezone.utc)
     horizon = now_utc + timedelta(hours=float(settings.get("schedule_hours_ahead", 6)))
     accounts = settings.get("accounts") or {}
-    client = client or blotato.Client(settings["blotato_api_key"])
+    clients = _clients(settings, client, zclient)
     done = 0
     root = store.DATA_DIR / "batches"
     if not root.exists():
@@ -91,43 +111,63 @@ def schedule_due(settings, client=None, now_utc=None):
                 continue
             if when > horizon:
                 continue
-            try:
-                if not r.get("media_url"):
-                    r["media_url"] = client.upload(str(builder.batch_dir(day) / r["file"]))
+            for p in pending:
+                acct = accounts.get(p) or {}
+                if not acct.get("enabled"):
+                    r["platforms"][p] = {"status": "off"}
                     changed = True
-                for p in pending:
-                    acct = accounts.get(p) or {}
-                    if not acct.get("enabled"):
-                        r["platforms"][p] = {"status": "off"}
-                        continue
+                    continue
+                via = acct.get("via", "blotato")
+                c = clients.get(via)
+                if c is None:
+                    r["platforms"][p] = {"status": "failed", "error": f"no {via.title()} API key"}
+                    changed = True
+                    continue
+                uk = _url_key(via)
+                if not r.get(uk):
                     try:
-                        sid = client.schedule(p, acct, r, r["media_url"], when, settings)
+                        r[uk] = c.upload(str(builder.batch_dir(day) / r["file"]))
+                        changed = True
+                    except (blotato.BlotatoError, zernio.ZernioError) as e:
+                        store.event("error", f"Upload to {via.title()} failed for \"{r['hook'][:40]}\": {e}")
+                        continue          # stays pending; tried again next round
+                    except OSError as e:
+                        store.event("error", f"Could not read reel file: {e}")
+                        break
+                try:
+                    if via == "zernio":
+                        song = songs.pick(p, settings, c, acct)
+                        sid = c.schedule(p, acct, r, r[uk], when, settings, song)
+                        st = {"status": "scheduled", "id": sid, "via": "zernio"}
+                        if song:
+                            st["song"] = " — ".join(x for x in (song.get("title"), song.get("artist")) if x) \
+                                or "song from your link"
+                        r["platforms"][p] = st
+                    else:
+                        sid = c.schedule(p, acct, r, r[uk], when, settings)
                         r["platforms"][p] = {"status": "scheduled", "id": sid}
-                        done += 1
-                    except blotato.BlotatoError as e:
-                        r["platforms"][p] = {"status": "failed", "error": str(e)}
-                        store.event("error", f"{blotato.NAMES[p]} refused \"{r['hook'][:40]}\": {e}")
-                    changed = True
-                    builder.save_plan(day, items)
-                    time.sleep(1)
-                ok = [blotato.NAMES[p] for p, st in r["platforms"].items() if st["status"] == "scheduled"]
-                if ok:
-                    store.event("scheduled", f"{local:%a %-I:%M %p}: \"{r['hook'][:50]}\" on {', '.join(ok)}.")
-            except blotato.BlotatoError as e:
-                store.event("error", f"Upload failed for \"{r['hook'][:40]}\": {e}")
-            except OSError as e:
-                store.event("error", f"Could not read reel file: {e}")
+                    done += 1
+                except (blotato.BlotatoError, zernio.ZernioError) as e:
+                    r["platforms"][p] = {"status": "failed", "error": str(e)}
+                    store.event("error", f"{NAMES[p]} refused \"{r['hook'][:40]}\": {e}")
+                changed = True
+                builder.save_plan(day, items)
+                time.sleep(1)
+            ok = [NAMES[p] + (f" (♪ {st['song']})" if st.get("song") else "")
+                  for p, st in r["platforms"].items() if st["status"] == "scheduled"]
+            if ok and any(p in pending for p, st in r["platforms"].items() if st["status"] == "scheduled"):
+                store.event("scheduled", f"{local:%a %-I:%M %p}: \"{r['hook'][:50]}\" on {', '.join(ok)}.")
         if changed:
             builder.save_plan(day, items)
     return done
 
 
-def restyle(settings, limit=None, client=None, now_utc=None):
+def restyle(settings, limit=None, client=None, now_utc=None, zclient=None):
     """Remake upcoming reels made in an older text style, soonest first.
 
-    Reels not yet in Blotato are just re-rendered. Reels already scheduled in Blotato are
-    re-rendered, uploaded again, and the new video is swapped onto the scheduled post, so its
-    time and caption stay the same. Reels within 15 minutes of posting are left alone.
+    Reels not yet handed off are just re-rendered. Reels already scheduled in Zernio or
+    Blotato are re-rendered, uploaded again, and the new video is swapped onto the scheduled
+    posts, so their time, caption and music stay the same. Reels within 15 minutes of posting are left alone.
     """
     tz = ZoneInfo(settings["timezone"])
     now_utc = now_utc or datetime.now(timezone.utc)
@@ -151,7 +191,7 @@ def restyle(settings, limit=None, client=None, now_utc=None):
     if not todo:
         store.event("info", "No upcoming reels need remaking; they already use the current style.")
         return 0
-    client = client or (blotato.Client(settings["blotato_api_key"]) if settings.get("blotato_api_key") else None)
+    clients = _clients(settings, client, zclient)
     schedules = None
     done = 0
     for _, day, n in todo:
@@ -161,41 +201,64 @@ def restyle(settings, limit=None, client=None, now_utc=None):
             continue
         local = reel_when(r, tz)[0]
         label = f"{local:%a %-I:%M %p} \"{r['hook'][:40]}\""
-        in_blotato = any(st.get("status") == "scheduled" for st in r["platforms"].values())
+        sched = {p: st for p, st in r["platforms"].items() if st.get("status") == "scheduled"}
         try:
-            if not in_blotato:
+            if not sched:
                 builder.rerender(day, r, settings)
+                r.pop("media_url", None)
+                r.pop("zernio_url", None)
                 builder.save_plan(day, items)
                 done += 1
                 store.event("build", f"Remade {label} in the new style.")
                 continue
-            if schedules is None:
-                schedules = client.list_schedules()
+            z_posts = [st["id"] for st in sched.values() if st.get("via") == "zernio"]
+            b_sched = any(st.get("via", "blotato") == "blotato" for st in sched.values())
+            matches = []
             old_url = r.get("media_url")
-            matches = [s for s in schedules
-                       if old_url and old_url in ((s.get("draft") or {}).get("content") or {}).get("mediaUrls", [])]
-            if not matches:
-                store.event("warn", f"Couldn't find {label} among Blotato's scheduled posts, so it was left as is.")
+            if b_sched:
+                if clients["blotato"] is None:
+                    raise blotato.BlotatoError("no Blotato API key")
+                if schedules is None:
+                    schedules = clients["blotato"].list_schedules()
+                matches = [s for s in schedules
+                           if old_url and old_url in ((s.get("draft") or {}).get("content") or {}).get("mediaUrls", [])]
+            if not matches and not z_posts:
+                store.event("warn", f"Couldn't find {label} among the scheduled posts, so it was left as is.")
                 continue
             builder.rerender(day, r, settings)
-            new_url = client.upload(str(builder.batch_dir(day) / r["file"]))
-            failed = []
-            for sch in matches:
-                try:
-                    client.replace_media(sch, old_url, new_url)
-                except blotato.BlotatoError as e:
-                    failed.append(str(e)[:120])
-                time.sleep(1)
-            r["media_url"] = new_url
+            path = str(builder.batch_dir(day) / r["file"])
+            failed, swapped = [], 0
+            if matches:
+                new_url = clients["blotato"].upload(path)
+                for sch in matches:
+                    try:
+                        clients["blotato"].replace_media(sch, old_url, new_url)
+                        swapped += 1
+                    except blotato.BlotatoError as e:
+                        failed.append(str(e)[:120])
+                    time.sleep(1)
+                r["media_url"] = new_url
+            if z_posts:
+                if clients["zernio"] is None:
+                    raise zernio.ZernioError("no Zernio API key")
+                new_z = clients["zernio"].upload(path)
+                for pid in z_posts:
+                    try:
+                        clients["zernio"].replace_media(pid, new_z)
+                        swapped += 1
+                    except zernio.ZernioError as e:
+                        failed.append(str(e)[:120])
+                    time.sleep(1)
+                r["zernio_url"] = new_z
             builder.save_plan(day, items)
+            total = len(matches) + len(z_posts)
             if failed:
-                store.event("error", f"Remade {label}, but Blotato refused the swap on {len(failed)} of "
-                                     f"{len(matches)} posts: {failed[0]}")
+                store.event("error", f"Remade {label}, but the swap was refused on {len(failed)} of "
+                                     f"{total} posts: {failed[0]}")
             else:
                 done += 1
-                store.event("scheduled", f"Remade {label} and swapped it into {len(matches)} scheduled "
-                                         f"Blotato post(s).")
-        except (blotato.BlotatoError, RuntimeError, OSError) as e:
+                store.event("scheduled", f"Remade {label} and swapped it into {total} scheduled post(s).")
+        except (blotato.BlotatoError, zernio.ZernioError, RuntimeError, OSError) as e:
             store.event("error", f"Couldn't remake {label}: {str(e)[:200]}")
     return done
 

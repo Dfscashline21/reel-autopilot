@@ -26,8 +26,8 @@
     <button class="quiet">Remake next reel in new style</button></form>
   <form class="inline" method="post" action="/reels/restyle"><input type="hidden" name="which" value="all">
     <button class="quiet">Remake all upcoming reels in new style</button></form>
-  <p class="hint">Reels go to Blotato {{ s.schedule_hours_ahead }} hours before their time. Until then you can skip them here.
-    After that, pull them in Blotato: Posts → Scheduled → Move to drafts.</p>
+  <p class="hint">Reels go to Zernio/Blotato {{ s.schedule_hours_ahead }} hours before their time. Until then you can skip them here.
+    After that, remove them in Zernio or Blotato (Blotato: Posts → Scheduled → Move to drafts).</p>
 </div>
 
 <div class="card">
@@ -41,7 +41,7 @@
       <td>{{ r.when.strftime('%a %b %-d, %-I:%M %p') }}</td>
       <td>{{ r.hook }}</td>
       <td><div class="chips">{% for p, st in r.platforms.items() %}
-        <span class="chip {% if st.status == 'scheduled' %}ok{% elif st.status in ['failed','missed'] %}bad{% endif %}" title="{{ st.error or '' }}">{{ names[p] }}: {{ st.status }}</span>{% endfor %}</div></td>
+        <span class="chip {% if st.status == 'scheduled' %}ok{% elif st.status in ['failed','missed'] %}bad{% endif %}" title="{{ st.error or st.song or '' }}">{{ names[p] }}: {{ st.status }}{% if st.song %} ♪{% endif %}</span>{% endfor %}</div></td>
       <td>{% if not r.skipped and not r.past %}<form class="inline" method="post" action="/reel/{{ r.day }}/{{ r.n }}/skip"><button class="small quiet">Skip</button></form>{% endif %}</td>
     </tr>
     {% endfor %}

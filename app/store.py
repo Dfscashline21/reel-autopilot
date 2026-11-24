@@ -3,6 +3,7 @@
     data/
       settings.json          what the person entered in setup
       hooks.json             [{"hook", "caption", "tag"}]
+      songs.json             song list matched to Instagram/TikTok music (songs.py)
       clips.json             normalized clips + excluded windows
       history.json           footage windows already used
       events.json            recent activity shown on the home page
@@ -26,7 +27,9 @@ _lock = threading.RLock()
 
 DEFAULT_SETTINGS = {
     "blotato_api_key": "",
-    "accounts": {},            # platform -> {"id", "username", "enabled", "page_id"}
+    "zernio_api_key": "",      # Instagram + TikTok with music, when connected
+    "accounts": {},            # platform -> {"id", "username", "enabled", "page_id", "via": "blotato"|"zernio"}
+    "song_fallback": "trending",  # no song from the list available: "trending" track or "none" (video's own sound)
     "timezone": "America/Los_Angeles",
     "times": ["15:00", "15:20", "15:40", "16:00", "16:20"],
     "link": "",
@@ -82,6 +85,8 @@ def settings() -> dict:
     # A key set on the host wins over nothing; the setup page can still change it.
     if not s["blotato_api_key"] and os.environ.get("BLOTATO_API_KEY"):
         s["blotato_api_key"] = os.environ["BLOTATO_API_KEY"].strip()
+    if not s["zernio_api_key"] and os.environ.get("ZERNIO_API_KEY"):
+        s["zernio_api_key"] = os.environ["ZERNIO_API_KEY"].strip()
     return s
 
 

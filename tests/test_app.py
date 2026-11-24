@@ -160,7 +160,13 @@ def test_login_and_pages():
         assert c.post("/login", data={"pw": "nope"}, follow_redirects=False).headers["location"].startswith("/login")
         c.post("/login", data={"pw": "pw"})
         r = c.get("/setup")
-        assert r.status_code == 200 and "Connect Blotato" in r.text
+        assert r.status_code == 200 and "Connect Blotato" in r.text and "Connect Zernio" in r.text
+        c.post("/setup/songs", data={"text": "⭐ What Was I Made For — Billie Eilish"})
+        from app import songs
+        songs.save([dict(songs.songs()[0], ig={"id": "a1", "title": "What Was I Made For?", "artist": "Billie Eilish"},
+                         ig_note="Found", tt=None, tt_note="Not in TikTok's commercial music list right now")])
+        r = c.get("/setup")
+        assert r.status_code == 200 and "What Was I Made For?" in r.text and "commercial music list" in r.text
         c.post("/setup/hooks", data={"text": "Hook one | Cap one | comment\nHook two\nhook TWO"})
         assert [h["hook"] for h in store.hooks()] == ["Hook one", "Hook two"]
         c.post("/setup/schedule", data={"timezone": TZ, "times": "9:05, 15:00", "reel_seconds": 13})
@@ -323,3 +329,147 @@ def test_restyle_remakes_unsent_and_swaps_scheduled():
     assert f1.stat().st_mtime > 0 and f1.stat().st_size > 1000      # file was replaced
     # new reels are built in the current style and not remade
     assert not list(builder.batch_dir(day).glob("*_new.*")) and not list(builder.batch_dir(day).glob("*_mux.*"))
+
+
+# ── Zernio + songs ─────────────────────────────────────────────────────────────
+
+class FakeZernio:
+    def __init__(self, ig_audio=None, tt_tracks=None):
+        self.posts, self.uploads, self.replaced = [], 0, []
+        self.ig_audio = ig_audio or {}
+        self.tt_tracks = tt_tracks or []
+
+    def upload(self, path):
+        self.uploads += 1
+        return f"https://z/cdn/{self.uploads}.mp4"
+
+    def search_instagram_audio(self, account_id, query, audio_type="music"):
+        return self.ig_audio.get((audio_type, query), self.ig_audio.get((audio_type, "*"), []))
+
+    def tiktok_music(self, account_id):
+        return self.tt_tracks
+
+    def schedule(self, platform, account, reel, url, when, settings, song=None):
+        from app import zernio
+        self.posts.append((platform, reel["n"], song, zernio.Client("k").body(platform, account, reel, url, when,
+                                                                              settings, song)))
+        return f"zp-{len(self.posts)}"
+
+    def replace_media(self, post_id, new_url):
+        self.replaced.append((post_id, new_url))
+
+
+def test_parse_song_list():
+    from app import songs
+    items = songs.parse("What Was I Made For — Billie Eilish\n"
+                        "⭐ Golden Hour - JVKE\n"
+                        "https://www.instagram.com/reels/audio/123456 | Dancing On My Own — Calum Scott | fav\n"
+                        "https://www.instagram.com/reels/audio/999\n"
+                        "what was i made for — billie eilish\n\n")
+    assert len(items) == 4                                     # duplicate dropped
+    assert items[0]["title"] == "What Was I Made For" and items[0]["artist"] == "Billie Eilish"
+    assert items[1]["fav"] and items[1]["artist"] == "JVKE"
+    assert items[2]["link_id"] == "123456" and items[2]["title"] == "Dancing On My Own" and items[2]["fav"]
+    assert items[3]["link_id"] == "999" and items[3]["title"] == ""
+
+
+def test_match_songs_on_instagram_and_tiktok(monkeypatch):
+    from app import songs
+    fz = FakeZernio(
+        ig_audio={("music", "What Was I Made For Billie Eilish"): [
+                      {"audioId": "a1", "title": "What Was I Made For? [From The Motion Picture \"Barbie\"]",
+                       "displayArtist": "Billie Eilish"},
+                      {"audioId": "a2", "title": "What Was I Made For (Cover)", "displayArtist": "Someone"}],
+                  ("music", "Dancing On My Own Calum Scott"): [{"audioId": "x", "title": "Dancing On My Own",
+                                                                 "displayArtist": "Calum Scott"}],
+                  ("original_sound", "Dancing On My Own Calum Scott"): [
+                      {"audioId": "123456", "title": "Dancing On My Own", "igUsername": "pianoguy"}]},
+        tt_tracks=[{"id": "full1", "name": "What Was I Made For?", "artist": "Billie Eilish", "rank": 3,
+                    "clip": {"id": "clip1"}}])
+    items = songs.parse("What Was I Made For — Billie Eilish\n"
+                        "https://www.instagram.com/reels/audio/123456 | Dancing On My Own — Calum Scott\n"
+                        "Nope — Nobody")
+    accts = {"instagram": {"id": "ig", "via": "zernio"}, "tiktok": {"id": "tt", "via": "zernio"}}
+    monkeypatch.setattr(songs.time, "sleep", lambda s: None)
+    out = songs.resolve(items, fz, accts)
+    assert out[0]["ig"]["id"] == "a1" and out[0]["tt"]["id"] == "clip1"     # clip id, not full track
+    assert out[1]["ig"]["id"] == "123456"                                     # matched the link exactly
+    assert out[2]["ig"] is None and "Not available" in out[2]["ig_note"] and out[2]["tt"] is None
+
+
+def test_zernio_posts_get_songs_and_youtube_stays_on_blotato():
+    from app import songs
+    make_clip("clip01", 40)
+    store.write_json("hooks.json", [{"hook": "Box 1: Top Box 2: Bottom", "caption": "c1 #a #b"}])
+    store.save_settings(accounts={"instagram": {"id": "ig1", "enabled": True, "via": "zernio"},
+                                  "tiktok": {"id": "tt1", "enabled": True, "via": "zernio"},
+                                  "youtube": {"id": "2", "enabled": True, "via": "blotato"}},
+                        zernio_api_key="zk", youtube_daily_cap=5)
+    songs.save([{"line": "A", "title": "A", "artist": "", "link_id": None, "fav": False,
+                 "ig": {"id": "igA", "title": "A", "artist": ""}, "tt": None},
+                {"line": "B", "title": "B", "artist": "", "link_id": None, "fav": True,
+                 "ig": {"id": "igB", "title": "B", "artist": ""}, "tt": {"id": "ttB", "title": "B", "artist": ""}}])
+    tz = ZoneInfo(TZ)
+    day = date(2030, 1, 7)
+    builder.build_day(day, store.settings(), now=datetime(2030, 1, 7, 9, 0, tzinfo=tz))
+    fz, fb = FakeZernio(), FakeClient()
+    n = runner.schedule_due(store.settings(), client=fb, zclient=fz,
+                            now_utc=datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc))
+    assert n == 6 and fz.uploads == 2 and fb.uploads == 2                    # one upload per reel per service
+    assert {p for p, *_ in fb.posts} == {"youtube"}
+    ig = [x for x in fz.posts if x[0] == "instagram"]
+    tt = [x for x in fz.posts if x[0] == "tiktok"]
+    assert {x[2]["id"] for x in ig} == {"igA", "igB"}                         # rotates through the list
+    body = ig[0][3]["platforms"][0]["platformSpecificData"]
+    assert body["audioConfiguration"]["videoVolume"] == 0 and body["shareToFeed"] is True
+    assert [x[2]["id"] for x in tt] == ["ttB", "ttB"]                         # only B is on TikTok
+    tbody = tt[0][3]["tiktokSettings"]
+    assert tbody["musicSoundInfo"]["musicSoundId"] == "ttB" and tbody["videoOriginalSoundVolume"] == 0
+    assert tbody["content_preview_confirmed"] and tbody["express_consent_given"]
+    plan = builder.plan(day)
+    assert plan[0]["platforms"]["instagram"]["via"] == "zernio" and plan[0]["platforms"]["instagram"]["song"]
+    assert plan[0]["zernio_url"] and plan[0]["media_url"]
+
+    # Remake swaps the new video onto the Zernio posts
+    for r in plan:
+        r["style"] = 1
+    builder.save_plan(day, plan)
+
+    class FB(FakeClient):
+        def list_schedules(self):
+            return [{"id": f"s{r['n']}", "draft": {"content": {"mediaUrls": [r["media_url"]]}}}
+                    for r in builder.plan(day)]
+
+        def replace_media(self, sch, old, new):
+            pass
+    fz2 = FakeZernio()
+    assert runner.restyle(store.settings(), client=FB(), zclient=fz2,
+                          now_utc=datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc)) == 2
+    assert sorted(p for p, _ in fz2.replaced) == ["zp-1", "zp-2", "zp-3", "zp-4"]
+
+
+def test_song_fallback_and_favorites():
+    from app import songs
+    fz = FakeZernio(tt_tracks=[{"id": f"t{i}", "name": f"T{i}", "artist": "x", "rank": i, "clip": {"id": f"c{i}"}}
+                               for i in range(1, 15)])
+    songs.save([])
+    s = dict(store.settings(), song_fallback="trending")
+    assert songs.pick("tiktok", s, fz, {"id": "tt"})["id"] == "c1"            # trending, top rank first
+    assert songs.pick("tiktok", dict(s, song_fallback="none"), fz, {"id": "tt"}) is None
+    songs.save([{"line": "F", "fav": True, "tt": {"id": "f"}}, {"line": "P", "fav": False, "tt": {"id": "p"}},
+                {"line": "Q", "fav": False, "tt": {"id": "q"}}])
+    picks = [songs.pick("tiktok", s)["id"] for _ in range(9)]
+    assert picks.count("f") > picks.count("p") and picks.count("f") > picks.count("q")
+
+
+def test_zernio_instagram_trial_and_no_song():
+    from app import zernio
+    reel = {"hook": "H", "caption": "C", "tag": ""}
+    when = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    s = dict(store.settings(), ig_trial="SS_PERFORMANCE")
+    b = zernio.Client("k").body("instagram", {"id": "1"}, reel, "u", when, s)
+    psd = b["platforms"][0]["platformSpecificData"]
+    assert psd["trialParams"] == {"graduationStrategy": "SS_PERFORMANCE"} and "shareToFeed" not in psd
+    assert "audioConfiguration" not in psd and b["scheduledFor"] == "2030-01-01T00:00:00Z"
+    t = zernio.Client("k").body("tiktok", {"id": "2"}, reel, "u", when, s)
+    assert "musicSoundInfo" not in t["tiktokSettings"] and "videoOriginalSoundVolume" not in t["tiktokSettings"]
