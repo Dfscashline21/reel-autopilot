@@ -3,7 +3,7 @@
 songs.json: [{"line", "title", "artist", "link_id", "fav",
               "ig": {"id", "title", "artist", "kind"} | None, "ig_note",
               "tt": {"id", "title", "artist"} | None, "tt_note"}]
-song_history.json: {"used": {"2026-11-23": {"ig": [ids used that day], "tt": [...]}},
+song_history.json: {"used": {"2026-11-23": {"ig": [ids used that day], "ig_sets": {set: id}, "tt": [...]}},
                     "tt_trending": [...], "tt_trending_at": epoch}
 """
 import random
@@ -178,13 +178,14 @@ def _save_trending(tracks):
     store.write_json("song_history.json", h)
 
 
-def pick(platform, settings, client=None, account=None, day=None, rng=random):
+def pick(platform, settings, client=None, account=None, day=None, rng=random, set_key=None):
     """A song for one reel on "instagram" or "tiktok", or None for the video's own sound.
 
-    Picked at random from the list, skipping songs already used on that platform that day
-    (only once every song has been used that day can one repeat). A favorite is twice as
-    likely to be picked. When nothing on the list is available on that platform and the
-    fallback is on, a trending track is picked the same way instead."""
+    Reels in the same set (same hook and video) share one song. Each set gets a random song
+    that no other set has used on that platform that day (only once every song has been
+    used that day can one repeat). A favorite is twice as likely to be picked. When nothing
+    on the list is available on that platform and the fallback is on, a trending track is
+    picked the same way instead."""
     key = "ig" if platform == "instagram" else "tt"
     h = _hist()
     pool = [s[key] for s in songs() if s.get(key)]
@@ -199,11 +200,18 @@ def pick(platform, settings, client=None, account=None, day=None, rng=random):
     for d in [d for d in used if d < str(date.fromisoformat(day) - timedelta(days=3))]:
         del used[d]                                      # keep a few days only
     today = used.setdefault(day, {}).setdefault(key, [])
+    by_set = used[day].setdefault(key + "_sets", {})
+    if set_key is not None and str(set_key) in by_set:
+        same = next((a for a in pool if a["id"] == by_set[str(set_key)]), None)
+        if same:
+            return same                                  # the set keeps its song
     counts = {a["id"]: today.count(a["id"]) for a in pool}
     least = min(counts.values())
     choices = [a for a in pool if counts[a["id"]] == least]
     song = rng.choices(choices, weights=[2 if a["id"] in favs else 1 for a in choices])[0]
     today.append(song["id"])
+    if set_key is not None:
+        by_set[str(set_key)] = song["id"]
     store.write_json("song_history.json", h)
     return song
 

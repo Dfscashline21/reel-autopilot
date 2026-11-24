@@ -419,7 +419,8 @@ def test_zernio_posts_get_songs_and_youtube_stays_on_blotato():
     assert {p for p, *_ in fb.posts} == {"youtube"}
     ig = [x for x in fz.posts if x[0] == "instagram"]
     tt = [x for x in fz.posts if x[0] == "tiktok"]
-    assert {x[2]["id"] for x in ig} == {"igA", "igB"}                         # rotates through the list
+    assert builder.plan(day)[0]["set"] == builder.plan(day)[1]["set"]
+    assert len({x[2]["id"] for x in ig}) == 1                                 # one set, one song
     body = ig[0][3]["platforms"][0]["platformSpecificData"]
     assert body["audioConfiguration"]["videoVolume"] == 0 and body["shareToFeed"] is True
     assert [x[2]["id"] for x in tt] == ["ttB", "ttB"]                         # only B is on TikTok
@@ -469,6 +470,9 @@ def test_song_fallback_and_random_without_repeats():
     assert sorted(day2) == ["F", "P", "Q", "R"]                   # a new day starts fresh
     first = [songs.pick("tiktok", s, day=f"2031-01-{d:02d}", rng=rng)["id"] for d in range(1, 29)]
     assert first.count("F") > 28 / 4                              # a favorite comes up more often
+    # reels in the same set share a song; other sets that day get different ones
+    sets = [songs.pick("instagram", s, day="2032-01-01", rng=rng, set_key=k)["id"] for k in (1, 1, 1, 2, 2, 3)]
+    assert sets[0] == sets[1] == sets[2] and sets[3] == sets[4] and len({sets[0], sets[3], sets[5]}) == 3
 
 
 def test_zernio_instagram_trial_and_no_song():
