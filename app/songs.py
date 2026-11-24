@@ -3,11 +3,13 @@
 songs.json: [{"line", "title", "artist", "link_id", "fav",
               "ig": {"id", "title", "artist", "kind"} | None, "ig_note",
               "tt": {"id", "title", "artist"} | None, "tt_note"}]
-song_history.json: {"n": reels given a song so far, "last": {"ig:<id>": n, ...},
+song_history.json: {"used": {"2026-11-23": {"ig": [ids used that day], "tt": [...]}},
                     "tt_trending": [...], "tt_trending_at": epoch}
 """
+import random
 import re
 import time
+from datetime import date, timedelta
 
 from . import store
 
@@ -166,7 +168,7 @@ def save(items):
 
 
 def _hist():
-    return store.read_json("song_history.json", {"n": 0, "last": {}})
+    return store.read_json("song_history.json", {"used": {}})
 
 
 def _save_trending(tracks):
@@ -176,31 +178,32 @@ def _save_trending(tracks):
     store.write_json("song_history.json", h)
 
 
-def pick(platform, settings, client=None, account=None):
-    """The next song for one reel on "instagram" or "tiktok", or None for the video's own sound.
+def pick(platform, settings, client=None, account=None, day=None, rng=random):
+    """A song for one reel on "instagram" or "tiktok", or None for the video's own sound.
 
-    Rotates through the list, least recently used first; a favorite counts as having
-    waited twice as long. When nothing on the list is available on that platform and the
-    fallback is on, uses a trending track instead."""
+    Picked at random from the list, skipping songs already used on that platform that day
+    (only once every song has been used that day can one repeat). A favorite is twice as
+    likely to be picked. When nothing on the list is available on that platform and the
+    fallback is on, a trending track is picked the same way instead."""
     key = "ig" if platform == "instagram" else "tt"
     h = _hist()
-    n = h.get("n", 0)
     pool = [s[key] for s in songs() if s.get(key)]
     favs = {s[key]["id"] for s in songs() if s.get(key) and s.get("fav")}
     if not pool and (settings or {}).get("song_fallback", "trending") == "trending" and client and account:
         pool = _trending(platform, h, client, account)
     if not pool:
         return None
-
-    def due(a):
-        last = h["last"].get(f"{key}:{a['id']}", -1)
-        if last < 0:
-            return last
-        return 2 * last - n if a["id"] in favs else last
-    song = sorted(pool, key=due)[0]
+    day = str(day or date.today())
     h = _hist()
-    h["n"] = h.get("n", 0) + 1
-    h["last"][f"{key}:{song['id']}"] = h["n"]
+    used = h.setdefault("used", {})
+    for d in [d for d in used if d < str(date.fromisoformat(day) - timedelta(days=3))]:
+        del used[d]                                      # keep a few days only
+    today = used.setdefault(day, {}).setdefault(key, [])
+    counts = {a["id"]: today.count(a["id"]) for a in pool}
+    least = min(counts.values())
+    choices = [a for a in pool if counts[a["id"]] == least]
+    song = rng.choices(choices, weights=[2 if a["id"] in favs else 1 for a in choices])[0]
+    today.append(song["id"])
     store.write_json("song_history.json", h)
     return song
 

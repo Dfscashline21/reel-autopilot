@@ -136,7 +136,7 @@ def schedule_due(settings, client=None, now_utc=None, zclient=None):
                         break
                 try:
                     if via == "zernio":
-                        song = songs.pick(p, settings, c, acct)
+                        song = songs.pick(p, settings, c, acct, day=r.get("local_date"))
                         sid = c.schedule(p, acct, r, r[uk], when, settings, song)
                         st = {"status": "scheduled", "id": sid, "via": "zernio"}
                         if song:

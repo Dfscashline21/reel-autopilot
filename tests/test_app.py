@@ -448,18 +448,27 @@ def test_zernio_posts_get_songs_and_youtube_stays_on_blotato():
     assert sorted(p for p, _ in fz2.replaced) == ["zp-1", "zp-2", "zp-3", "zp-4"]
 
 
-def test_song_fallback_and_favorites():
+def test_song_fallback_and_random_without_repeats():
+    import random
     from app import songs
     fz = FakeZernio(tt_tracks=[{"id": f"t{i}", "name": f"T{i}", "artist": "x", "rank": i, "clip": {"id": f"c{i}"}}
                                for i in range(1, 15)])
     songs.save([])
     s = dict(store.settings(), song_fallback="trending")
-    assert songs.pick("tiktok", s, fz, {"id": "tt"})["id"] == "c1"            # trending, top rank first
+    assert songs.pick("tiktok", s, fz, {"id": "tt"}, day="2030-01-01")["id"] in {f"c{i}" for i in range(1, 11)}
     assert songs.pick("tiktok", dict(s, song_fallback="none"), fz, {"id": "tt"}) is None
-    songs.save([{"line": "F", "fav": True, "tt": {"id": "f"}}, {"line": "P", "fav": False, "tt": {"id": "p"}},
-                {"line": "Q", "fav": False, "tt": {"id": "q"}}])
-    picks = [songs.pick("tiktok", s)["id"] for _ in range(9)]
-    assert picks.count("f") > picks.count("p") and picks.count("f") > picks.count("q")
+    songs.save([{"line": x, "fav": x == "F", "tt": {"id": x}, "ig": {"id": x}} for x in "FPQR"])
+    rng = random.Random(7)
+    day1 = [songs.pick("tiktok", s, day="2030-01-02", rng=rng)["id"] for _ in range(4)]
+    assert sorted(day1) == ["F", "P", "Q", "R"]                   # no repeats until all are used
+    day1 += [songs.pick("tiktok", s, day="2030-01-02", rng=rng)["id"] for _ in range(4)]
+    assert sorted(day1[4:]) == ["F", "P", "Q", "R"]               # then a second round
+    ig = [songs.pick("instagram", s, day="2030-01-02", rng=rng)["id"] for _ in range(4)]
+    assert sorted(ig) == ["F", "P", "Q", "R"]                     # each platform counts separately
+    day2 = [songs.pick("tiktok", s, day="2030-01-03", rng=rng)["id"] for _ in range(4)]
+    assert sorted(day2) == ["F", "P", "Q", "R"]                   # a new day starts fresh
+    first = [songs.pick("tiktok", s, day=f"2031-01-{d:02d}", rng=rng)["id"] for d in range(1, 29)]
+    assert first.count("F") > 28 / 4                              # a favorite comes up more often
 
 
 def test_zernio_instagram_trial_and_no_song():
