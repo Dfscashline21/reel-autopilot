@@ -610,3 +610,15 @@ def test_instagram_facebook_button_and_return(monkeypatch):
         assert "#songs" in r.headers["location"]
         assert store.settings()["accounts"]["instagram"]["id"] == "new"
         assert "connected through Facebook ✓" in c.get("/setup").text
+
+
+def test_numbered_lists_start_new_lines():
+    from app import builder
+    assert builder.list_parts("1. Read to understand · 2. Pray out loud · 3. Stop comparing") == \
+        ("", ["1. Read to understand", "2. Pray out loud", "3. Stop comparing"])
+    assert builder.list_parts("If I started over: 1. One sport per kid 2. Use my village") == \
+        ("If I started over:", ["1. One sport per kid", "2. Use my village"])
+    for not_a_list in ("hit 2K followers on 2x", "Day 21. We made it", "1. only one item", "Box 2: plain"):
+        assert builder.list_parts(not_a_list) is None
+    assert builder.paragraphs("A 1. b 2. c") == ["A", "1. b", "2. c"]
+    assert builder.STYLE_VERSION >= 4          # remake buttons pick up reels made before lists

@@ -17,7 +17,7 @@ BOX_FONT_CANDIDATES = ["/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bol
                        "/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf"] + FONT_CANDIDATES
 EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
 # Bump when the look of the hook text changes, so older reels can be remade in the new style.
-STYLE_VERSION = 3
+STYLE_VERSION = 4
 
 SPEEDS = [1.0, 1.08, 0.95, 1.12, 1.04]
 ZOOMS = [1.0, 1.03, 1.06, 1.09]
@@ -44,6 +44,35 @@ def _font(size, candidates=FONT_CANDIDATES):
     return ImageFont.load_default()
 
 
+_ITEM = re.compile(r"(?<![\w.])(\d{1,2})\.\s")
+_SEPS = " ·•|-–—"
+
+
+def list_parts(text):
+    """A numbered list ("1. a · 2. b · 3. c") split into its lead-in (or "") and items, each to go
+    on its own line. None when the text isn't a list (it needs at least items 1 and 2)."""
+    want, starts = 1, []
+    for m in _ITEM.finditer(text or ""):
+        if int(m.group(1)) == want:
+            starts.append(m.start())
+            want += 1
+    if len(starts) < 2:
+        return None
+    lead = text[:starts[0]].strip().rstrip(_SEPS).strip()
+    ends = starts[1:] + [len(text)]
+    items = [text[a:b].strip().rstrip(_SEPS).strip() for a, b in zip(starts, ends)]
+    return lead, items
+
+
+def paragraphs(text):
+    """Text split where it must start a new line: each list item, or the whole text."""
+    parts = list_parts(text)
+    if not parts:
+        return [text]
+    lead, items = parts
+    return ([lead] if lead else []) + items
+
+
 def overlay_png(text, out_path):
     """Hook text, white with a black outline, on a dark band in the lower third."""
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -56,16 +85,19 @@ def overlay_png(text, out_path):
     size, maxw = 84, W - 160
 
     def wrap(font):
-        lines, cur = [], ""
-        for word in text.split():
-            t = (cur + " " + word).strip()
-            if d.textlength(t, font=font) <= maxw:
-                cur = t
-            else:
-                lines.append(cur)
-                cur = word
-        lines.append(cur)
-        return [ln for ln in lines if ln]
+        out = []
+        for para in paragraphs(text):          # each list item starts a new line
+            lines, cur = [], ""
+            for word in para.split():
+                t = (cur + " " + word).strip()
+                if d.textlength(t, font=font) <= maxw:
+                    cur = t
+                else:
+                    lines.append(cur)
+                    cur = word
+            lines.append(cur)
+            out += [ln for ln in lines if ln]
+        return out
 
     font = _font(size)
     lines = wrap(font)
@@ -178,37 +210,48 @@ def boxes_png(boxes, out_path):
         eh = int(size * 0.95)
         wrapped = []
         for b in boxes:
-            lines, cur = [], ""
-            for word in b.split():
-                t = (cur + " " + word).strip()
-                if not cur or _rich_width(d, t, font, eh) <= maxw:
-                    cur = t
-                else:
-                    lines.append(cur)
-                    cur = word
-            if cur:
-                lines.append(cur)
-            wrapped.append(lines)
+            parts = list_parts(b)
+            paras = [(b, 0)]
+            if parts:                            # one line per list item, wrapped lines indented
+                lead, items = parts
+                paras = ([(lead, 0)] if lead else []) + [
+                    (it, d.textlength(it.split(" ", 1)[0] + " ", font=font)) for it in items]
+            lines = []
+            for para, hang in paras:
+                cur, ind = "", 0
+                for word in para.split():
+                    t = (cur + " " + word).strip()
+                    if not cur or _rich_width(d, t, font, eh) + ind <= maxw:
+                        cur = t
+                    else:
+                        lines.append((cur, ind))
+                        cur, ind = word, hang
+                if cur:
+                    lines.append((cur, ind))
+            wrapped.append((lines, bool(parts)))
         return font, eh, wrapped
 
     size = 38
     font, eh, wrapped = layout(size)
-    while sum(len(x) for x in wrapped) > 9 and size > 30:
+    while sum(len(x[0]) for x in wrapped) > 9 and size > 30:
         size -= 2
         font, eh, wrapped = layout(size)
     ascent, descent = font.getmetrics()
     lh = int(size * 1.22)
-    heights = [len(ls) * lh + 2 * pady for ls in wrapped]
+    heights = [len(ls) * lh + 2 * pady for ls, _ in wrapped]
     total = sum(heights) + gap * (len(wrapped) - 1)
     y = max(220, int(H * 0.40) - total // 2)
-    for ls, bh in zip(wrapped, heights):
-        bw = max(_rich_width(d, ln, font, eh) for ln in ls) + 2 * padx
+    for (ls, is_list), bh in zip(wrapped, heights):
+        bw = max(_rich_width(d, ln, font, eh) + ind for ln, ind in ls) + 2 * padx
         x0 = (W - bw) / 2
         d.rounded_rectangle([x0, y, x0 + bw, y + bh], radius=17, fill=(255, 255, 255, 245))
         ty = y + pady + (lh - (ascent + descent)) // 2
-        for ln in ls:
-            lw = _rich_width(d, ln, font, eh)
-            _rich_draw(img, d, (W - lw) / 2, ty, ln, font, eh, ascent)
+        for ln, ind in ls:
+            if is_list:                          # lists read left to right, not centered
+                tx = x0 + padx + ind
+            else:
+                tx = (W - _rich_width(d, ln, font, eh)) / 2
+            _rich_draw(img, d, tx, ty, ln, font, eh, ascent)
             ty += lh
         y += bh + gap
     img.save(out_path)
