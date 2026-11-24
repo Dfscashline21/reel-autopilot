@@ -161,6 +161,17 @@ def restyle(which: str = Form("all")):
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/reels/clear")
+def clear_reels(platform: str = Form(""), mode: str = Form("remove")):
+    if platform not in blotato.NAMES:
+        return RedirectResponse("/", status_code=303)
+    resend = mode == "resend"
+    threading.Thread(target=runner.clear_now, args=(platform,), kwargs={"resend": resend}, daemon=True).start()
+    store.event("info", f"Clearing upcoming {blotato.NAMES[platform]} reels"
+                        + (" to send them again." if resend else "."))
+    return RedirectResponse("/", status_code=303)
+
+
 @app.post("/reel/{day}/{n}/skip")
 def skip(day: str, n: int):
     d = datetime.fromisoformat(day).date()
@@ -168,8 +179,8 @@ def skip(day: str, n: int):
     for r in items:
         if r["n"] == n:
             if any(st["status"] == "scheduled" for st in r["platforms"].values()):
-                store.event("warn", f"\"{r['hook'][:40]}\" is already in Blotato. To stop it, open Blotato: "
-                                    "Posts, Scheduled, Move to drafts.")
+                store.event("warn", f"\"{r['hook'][:40]}\" is already scheduled. To stop it there, use "
+                                    "Clear scheduled reels for that platform, or remove it in Zernio or Blotato.")
             r["skipped"] = True
             for p, st in r["platforms"].items():
                 if st["status"] == "pending":
@@ -483,5 +494,5 @@ def start():
 @app.post("/stop")
 def stop():
     store.save_settings(active=False)
-    store.event("info", "Autopilot stopped. Reels already in Blotato will still post.")
+    store.event("info", "Autopilot stopped. Reels already in Zernio or Blotato will still post.")
     return RedirectResponse("/setup", status_code=303)

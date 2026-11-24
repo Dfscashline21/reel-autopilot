@@ -116,3 +116,7 @@ class Client:
     def replace_media(self, post_id, new_url):
         """Swap the video on a scheduled post, keeping its time, caption and music."""
         self._req("PUT", f"/posts/{post_id}", json={"mediaItems": [{"type": "video", "url": new_url}]})
+
+    def delete_post(self, post_id):
+        """Cancel a scheduled post (published posts can't be deleted)."""
+        self._req("DELETE", f"/posts/{post_id}")

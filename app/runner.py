@@ -263,6 +263,83 @@ def restyle(settings, limit=None, client=None, now_utc=None, zclient=None):
     return done
 
 
+def clear_platform(settings, platform, resend=False, client=None, zclient=None, now_utc=None):
+    """Take one platform's upcoming reels off the schedule.
+
+    Posts already handed to Zernio or Blotato are cancelled there. With resend, the reels go
+    back to pending, so the autopilot sends them again with the current setup (for example
+    through Zernio with a song); without it they're marked cleared and won't post on that
+    platform. Other platforms are untouched. Reels within 10 minutes of posting are left alone.
+    Returns (cleared, failed)."""
+    tz = ZoneInfo(settings["timezone"])
+    now_utc = now_utc or datetime.now(timezone.utc)
+    soon = now_utc + timedelta(minutes=10)
+    clients = _clients(settings, client, zclient)
+    root = store.DATA_DIR / "batches"
+    schedules = None
+    cleared, failed = 0, 0
+    for d in sorted(p.name for p in root.iterdir() if p.is_dir()) if root.exists() else []:
+        try:
+            day = date.fromisoformat(d)
+        except ValueError:
+            continue
+        items = builder.plan(day) or []
+        changed = False
+        for r in items:
+            st = r["platforms"].get(platform)
+            if not st or r.get("skipped") or st.get("status") not in ("scheduled", "pending", "failed"):
+                continue
+            if reel_when(r, tz)[1] <= soon:
+                continue
+            label = f"{reel_when(r, tz)[0]:%a %-I:%M %p} \"{r['hook'][:40]}\""
+            if st["status"] == "scheduled":
+                try:
+                    if st.get("via") == "zernio":
+                        if clients["zernio"] is None:
+                            raise zernio.ZernioError("no Zernio API key")
+                        clients["zernio"].delete_post(st["id"])
+                    else:
+                        if clients["blotato"] is None:
+                            raise blotato.BlotatoError("no Blotato API key")
+                        if schedules is None:
+                            schedules = clients["blotato"].list_schedules()
+                        url = r.get("media_url")
+                        found = [x for x in schedules
+                                 if url and url in ((x.get("draft") or {}).get("content") or {}).get("mediaUrls", [])
+                                 and platform in (((x.get("draft") or {}).get("content") or {}).get("platform"),
+                                                  ((x.get("draft") or {}).get("target") or {}).get("targetType"))]
+                        if not found:
+                            raise blotato.BlotatoError("couldn't find it among Blotato's scheduled posts")
+                        for x in found:
+                            clients["blotato"].delete_schedule(x["id"])
+                    time.sleep(0.5)
+                except (blotato.BlotatoError, zernio.ZernioError) as e:
+                    failed += 1
+                    store.event("error", f"Couldn't clear {NAMES[platform]} for {label}: {str(e)[:150]}")
+                    continue
+            if resend:
+                r["platforms"][platform] = {"status": "pending"}
+                # a new hand-off uploads again if it moves to the other service
+            else:
+                r["platforms"][platform] = {"status": "cleared"}
+            cleared += 1
+            changed = True
+        if changed:
+            builder.save_plan(day, items)
+    what = "cleared and will be sent again with the current setup" if resend else "cleared"
+    store.event("warn" if failed else "info",
+                f"{NAMES[platform]}: {cleared} upcoming reel(s) {what}" + (f"; {failed} couldn't be cleared." if failed else "."))
+    return cleared, failed
+
+
+def clear_now(platform, resend=False):
+    with _tick_lock:
+        try:
+            clear_platform(store.settings(), platform, resend=resend)
+        except Exception as e:  # noqa: BLE001
+            store.event("error", f"Clearing {platform} failed: {str(e)[:250]}")
+
+
 def restyle_now(limit=None):
     """Run restyle without clashing with the autopilot's own tick."""
     with _tick_lock:

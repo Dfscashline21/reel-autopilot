@@ -89,6 +89,10 @@ class Client:
         draft["content"] = content
         self._req("PATCH", f"/schedules/{schedule['id']}", json={"patch": {"draft": draft}})
 
+    def delete_schedule(self, schedule_id):
+        """Cancel a scheduled post (it can't be undone)."""
+        self._req("DELETE", f"/schedules/{schedule_id}")
+
     def schedule(self, platform, account, reel, media_url, when_utc, settings):
         target = {"targetType": platform}
         if platform == "instagram":

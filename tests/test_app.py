@@ -473,3 +473,60 @@ def test_zernio_instagram_trial_and_no_song():
     assert "audioConfiguration" not in psd and b["scheduledFor"] == "2030-01-01T00:00:00Z"
     t = zernio.Client("k").body("tiktok", {"id": "2"}, reel, "u", when, s)
     assert "musicSoundInfo" not in t["tiktokSettings"] and "videoOriginalSoundVolume" not in t["tiktokSettings"]
+
+
+def test_clear_scheduled_reels_by_platform():
+    make_clip("clip01", 40)
+    store.write_json("hooks.json", [{"hook": "H", "caption": "c"}])
+    store.save_settings(accounts={"instagram": {"id": "ig1", "enabled": True, "via": "zernio"},
+                                  "youtube": {"id": "2", "enabled": True, "via": "blotato"}},
+                        zernio_api_key="zk", youtube_daily_cap=5, song_fallback="none")
+    tz = ZoneInfo(TZ)
+    day = date(2030, 1, 7)
+    builder.build_day(day, store.settings(), now=datetime(2030, 1, 7, 9, 0, tzinfo=tz))
+    now = datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc)
+
+    class FZ(FakeZernio):
+        def __init__(self):
+            super().__init__()
+            self.deleted = []
+
+        def delete_post(self, pid):
+            self.deleted.append(pid)
+
+    class FB(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.deleted = []
+
+        def upload(self, path):
+            super().upload(path)
+            return f"https://cdn/y{self.uploads}.mp4"
+
+        def list_schedules(self):
+            return [{"id": f"s{r['n']}", "draft": {"content": {"mediaUrls": [r["media_url"]], "platform": "youtube"}}}
+                    for r in builder.plan(day)]
+
+        def delete_schedule(self, sid):
+            self.deleted.append(sid)
+
+    fz, fb = FZ(), FB()
+    assert runner.schedule_due(store.settings(), client=fb, zclient=fz, now_utc=now) == 4
+    # Remove YouTube only: cancelled in Blotato, Instagram untouched
+    assert runner.clear_platform(store.settings(), "youtube", client=fb, zclient=fz, now_utc=now) == (2, 0)
+    assert sorted(fb.deleted) == ["s1", "s2"] and fz.deleted == []
+    plan = builder.plan(day)
+    assert {r["platforms"]["youtube"]["status"] for r in plan} == {"cleared"}
+    assert {r["platforms"]["instagram"]["status"] for r in plan} == {"scheduled"}
+    # Re-send Instagram: cancelled in Zernio, then sent again on the next round
+    assert runner.clear_platform(store.settings(), "instagram", resend=True, client=fb, zclient=fz,
+                                 now_utc=now) == (2, 0)
+    assert sorted(fz.deleted) == ["zp-1", "zp-2"]
+    assert {r["platforms"]["instagram"]["status"] for r in builder.plan(day)} == {"pending"}
+    assert runner.schedule_due(store.settings(), client=fb, zclient=fz, now_utc=now) == 2
+    plan = builder.plan(day)
+    assert {r["platforms"]["instagram"]["status"] for r in plan} == {"scheduled"}
+    assert {r["platforms"]["youtube"]["status"] for r in plan} == {"cleared"}      # stays cleared
+    # Nothing within 10 minutes of posting is touched
+    late = datetime(2030, 1, 7, 14, 55, tzinfo=tz).astimezone(timezone.utc)
+    assert runner.clear_platform(store.settings(), "instagram", client=fb, zclient=fz, now_utc=late) == (1, 0)
