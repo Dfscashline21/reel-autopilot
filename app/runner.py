@@ -136,7 +136,13 @@ def schedule_due(settings, client=None, now_utc=None, zclient=None):
                         break
                 try:
                     if via == "zernio":
-                        song = songs.pick(p, settings, c, acct, day=r.get("local_date"), set_key=r.get("set"))
+                        choice = r.get("song_choice")
+                        if choice == "none":
+                            song = None
+                        elif isinstance(choice, dict):
+                            song = choice              # picked when reposting
+                        else:
+                            song = songs.pick(p, settings, c, acct, day=r.get("local_date"), set_key=r.get("set"))
                         sid = c.schedule(p, acct, r, r[uk], when, settings, song)
                         st = {"status": "scheduled", "id": sid, "via": "zernio"}
                         if song:
@@ -351,6 +357,112 @@ def restyle_now(limit=None):
             store.event("error", f"Remaking reels failed: {str(e)[:250]}")
 
 
+def _all_reels():
+    root = store.DATA_DIR / "batches"
+    for d in sorted(p.name for p in root.iterdir() if p.is_dir()) if root.exists() else []:
+        try:
+            day = date.fromisoformat(d)
+        except ValueError:
+            continue
+        yield day, builder.plan(day) or []
+
+
+def sync_failed(settings, zclient=None):
+    """Ask Zernio which posts failed and mark those reels failed here, with Zernio's reason.
+    Returns how many reels were newly marked."""
+    c = zclient or (zernio.Client(settings["zernio_api_key"]) if settings.get("zernio_api_key") else None)
+    if c is None:
+        return 0
+    failed = {}
+    for post in c.failed_posts():
+        plats = post.get("platforms") or []
+        bad = [x for x in plats if x.get("status") == "failed"] or (plats if post.get("status") == "failed" else [])
+        for x in bad:
+            msg = x.get("errorMessage") or post.get("errorMessage") or post.get("error") or "failed in Zernio"
+            failed[(str(post.get("_id")), x.get("platform"))] = str(msg)
+        if not plats and post.get("status") == "failed":
+            failed[(str(post.get("_id")), None)] = str(post.get("errorMessage") or "failed in Zernio")
+    if not failed:
+        return 0
+    marked = 0
+    for day, items in _all_reels():
+        changed = False
+        for r in items:
+            for p, st in r["platforms"].items():
+                if st.get("via") != "zernio" or st.get("status") != "scheduled":
+                    continue
+                msg = failed.get((str(st.get("id")), p)) or failed.get((str(st.get("id")), None))
+                if msg:
+                    st["status"], st["error"] = "failed", msg
+                    marked += 1
+                    changed = True
+                    store.event("error", f"{NAMES[p]} post failed in Zernio for \"{r['hook'][:40]}\": {msg[:150]}")
+        if changed:
+            builder.save_plan(day, items)
+    return marked
+
+
+def failed_reels(settings):
+    """Reels whose post failed or was missed on some platform and whose video is still here."""
+    tz = ZoneInfo(settings["timezone"])
+    rows = []
+    for day, items in _all_reels():
+        for r in items:
+            if not (builder.batch_dir(day) / r["file"]).exists():
+                continue
+            for p, st in r["platforms"].items():
+                if st.get("status") in ("failed", "missed"):
+                    rows.append({"day": day.isoformat(), "n": r["n"], "hook": r["hook"], "file": r["file"],
+                                 "thumb": r.get("thumb"), "platform": p, "status": st["status"],
+                                 "error": st.get("error", ""), "song": st.get("song", ""),
+                                 "when": reel_when(r, tz)[0], "time": r["local_time"]})
+    return rows
+
+
+def repost(settings, day, n, platform, new_date, new_time, song_choice="random", now_utc=None):
+    """Copy a failed reel to another day and time, on that one platform, optionally with a
+    chosen song ("random", "none" or a song from the list). Returns the new reel."""
+    tz = ZoneInfo(settings["timezone"])
+    now_utc = now_utc or datetime.now(timezone.utc)
+    when = datetime.fromisoformat(f"{new_date.isoformat()}T{new_time}").replace(tzinfo=tz)
+    if when.astimezone(timezone.utc) < now_utc + timedelta(minutes=15):
+        raise ValueError("Pick a time at least 15 minutes from now.")
+    items = builder.plan(day) or []
+    r = next((x for x in items if x["n"] == n), None)
+    if r is None or platform not in r["platforms"]:
+        raise ValueError("That reel isn't here any more.")
+    src = builder.batch_dir(day)
+    if not (src / r["file"]).exists():
+        raise ValueError("That reel's video has already been cleaned up.")
+    target = items if new_date == day else (builder.plan(new_date) or [])
+    n2 = max([x["n"] for x in target] + [0, n if new_date == day else 0]) + 1
+    out = builder.batch_dir(new_date)
+    out.mkdir(parents=True, exist_ok=True)
+    fname, thumb = f"repost_{n2:02d}.mp4", f"repost_{n2:02d}.jpg"
+    shutil.copy2(src / r["file"], out / fname)
+    if r.get("thumb") and (src / r["thumb"]).exists():
+        shutil.copy2(src / r["thumb"], out / thumb)
+    new = {k: v for k, v in r.items() if k not in ("media_url", "zernio_url")}
+    new.update({"n": n2, "file": fname, "thumb": thumb, "local_date": new_date.isoformat(), "local_time": new_time,
+                "set": f"repost-{n2}", "repost": True, "repost_of": f"{day.isoformat()}#{n}", "skipped": False,
+                "platforms": {platform: {"status": "pending"}}})
+    if song_choice == "none":
+        new["song_choice"] = "none"
+    elif isinstance(song_choice, dict):
+        new["song_choice"] = song_choice
+    r["platforms"][platform] = dict(r["platforms"][platform], status="reposted",
+                                    reposted_to=f"{new_date.isoformat()} {new_time}")
+    target.append(new)
+    target.sort(key=lambda x: x["local_time"])
+    builder.save_plan(new_date, target)
+    if new_date != day:
+        builder.save_plan(day, items)
+    store.event("info", f"Reposting \"{r['hook'][:40]}\" on {NAMES[platform]} {when:%a %b %-d, %-I:%M %p}"
+                        + (f" with {song_choice.get('title') or 'the chosen song'}." if isinstance(song_choice, dict)
+                           else " with no song." if song_choice == "none" else " with a random song from your list."))
+    return new
+
+
 def cleanup(settings, now=None):
     tz = ZoneInfo(settings["timezone"])
     today = (now or datetime.now(tz)).date()
@@ -384,6 +496,11 @@ def tick():
             schedule_due(s)
         except Exception as e:  # noqa: BLE001
             store.event("error", f"Scheduling failed: {str(e)[:250]}")
+        if s.get("zernio_api_key"):
+            try:
+                sync_failed(s)
+            except Exception as e:  # noqa: BLE001
+                store.event("warn", f"Couldn't check Zernio for failed posts: {str(e)[:200]}")
         cleanup(s)
     finally:
         _tick_lock.release()

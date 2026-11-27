@@ -8,7 +8,7 @@ import tempfile
 import threading
 from urllib.parse import quote
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, available_timezones
 
@@ -126,6 +126,8 @@ def home(request: Request):
     return templates.TemplateResponse(request, "home.html", {
         "sets": sets, "videos_needed": needed, "videos_ready": len(builder._ready_clips()),
         "s": s, "rows": upcoming(s), "events": store.events(25), "names": blotato.NAMES,
+        "failed": runner.failed_reels(s), "songs": songs.songs(),
+        "tomorrow": (datetime.now(ZoneInfo(s["timezone"])) + timedelta(days=1)).date().isoformat(),
         "unused": unused, "per_day": per_day, "days_left": (unused // per_day) if per_day else 0,
         "disk": runner.disk_free_gb()})
 
@@ -170,6 +172,36 @@ def clear_reels(platform: str = Form(""), mode: str = Form("remove")):
     store.event("info", f"Clearing upcoming {blotato.NAMES[platform]} reels"
                         + (" to send them again." if resend else "."))
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/zernio/check-failed")
+def check_failed():
+    s = store.settings()
+    if not s.get("zernio_api_key"):
+        store.event("warn", "Connect Zernio first (setup step 1).")
+        return RedirectResponse("/#failed", status_code=303)
+    try:
+        n = runner.sync_failed(s)
+        store.event("info", f"Checked Zernio: {n} newly failed post(s)." if n else "Checked Zernio: no new failed posts.")
+    except Exception as e:  # noqa: BLE001
+        store.event("error", f"Couldn't check Zernio: {str(e)[:200]}")
+    return RedirectResponse("/#failed", status_code=303)
+
+
+@app.post("/reel/{day}/{n}/repost")
+def repost_reel(day: str, n: int, platform: str = Form(...), new_date: str = Form(...),
+                new_time: str = Form(...), song: str = Form("random")):
+    s = store.settings()
+    key = "ig" if platform == "instagram" else "tt"
+    choice = song
+    if song not in ("random", "none"):
+        choice = next((x[key] for x in songs.songs() if x.get(key) and x[key]["id"] == song), "random")
+    try:
+        runner.repost(s, datetime.fromisoformat(day).date(), n, platform,
+                      datetime.fromisoformat(new_date).date(), new_time[:5], choice)
+    except (ValueError, OSError) as e:
+        store.event("error", f"Couldn't repost: {e}")
+    return RedirectResponse("/#failed", status_code=303)
 
 
 @app.post("/reel/{day}/{n}/skip")

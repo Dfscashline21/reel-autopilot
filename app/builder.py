@@ -459,7 +459,7 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
     now = now or datetime.now(tz)
     per = max(1, int(s.get("reels_per_set", 3)))
     existing = (plan(day) or []) if record else []
-    have = {r["local_time"] for r in existing}
+    have = {r["local_time"] for r in existing if not r.get("repost")}   # reposts don't take a slot
     all_times = sorted(s["times"])
     slots = [(t, i // per) for i, t in enumerate(all_times) if t not in have
              and datetime.fromisoformat(f"{day.isoformat()}T{t}").replace(tzinfo=tz) > now + timedelta(minutes=10)]
@@ -472,7 +472,7 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
     # sets already started today keep their hook and video
     sets = {}
     for r in existing:
-        if "set" in r and r.get("clip"):
+        if "set" in r and r.get("clip") and not r.get("repost"):
             sets.setdefault(r["set"], {"hook": {"hook": r["hook"], "caption": r.get("caption", ""),
                                                 "tag": r.get("tag", "")},
                                        "clip": r["clip"].split("@")[0], "used": set()})

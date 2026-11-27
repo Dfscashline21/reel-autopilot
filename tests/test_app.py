@@ -622,3 +622,53 @@ def test_numbered_lists_start_new_lines():
         assert builder.list_parts(not_a_list) is None
     assert builder.paragraphs("A 1. b 2. c") == ["A", "1. b", "2. c"]
     assert builder.STYLE_VERSION >= 4          # remake buttons pick up reels made before lists
+
+
+def test_failed_posts_sync_and_repost_with_new_song():
+    from app import songs
+    make_clip("clip01", 40)
+    store.write_json("hooks.json", [{"hook": "H", "caption": "c"}])
+    store.save_settings(accounts={"instagram": {"id": "ig1", "enabled": True, "via": "zernio"}},
+                        zernio_api_key="zk", song_fallback="none")
+    songs.save([{"line": "A", "title": "A", "artist": "", "ig": {"id": "igA", "title": "A", "artist": ""}},
+                {"line": "B", "title": "B", "artist": "", "ig": {"id": "igB", "title": "B", "artist": ""}}])
+    tz = ZoneInfo(TZ)
+    day = date(2030, 1, 7)
+    builder.build_day(day, store.settings(), now=datetime(2030, 1, 7, 9, 0, tzinfo=tz))
+    now = datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc)
+
+    class FZ(FakeZernio):
+        def failed_posts(self):
+            return [{"_id": "zp-1", "status": "partial", "platforms": [
+                        {"platform": "instagram", "status": "failed", "errorMessage": "Audio unavailable"}]},
+                    {"_id": "not-ours", "status": "failed", "platforms": [{"platform": "instagram",
+                                                                           "status": "failed"}]}]
+    fz = FZ()
+    assert runner.schedule_due(store.settings(), zclient=fz, now_utc=now) == 2
+    assert runner.sync_failed(store.settings(), zclient=fz) == 1
+    assert runner.sync_failed(store.settings(), zclient=fz) == 0                # already marked
+    rows = runner.failed_reels(store.settings())
+    assert len(rows) == 1 and rows[0]["error"] == "Audio unavailable" and rows[0]["platform"] == "instagram"
+    f = rows[0]
+    # repost on another day at the same time as a regular slot, with song B
+    new_day = date(2030, 1, 9)
+    runner.repost(store.settings(), day, f["n"], "instagram", new_day, f["time"],
+                  {"id": "igB", "title": "B", "artist": ""}, now_utc=now)
+    assert runner.failed_reels(store.settings()) == []                           # original marked reposted
+    assert builder.plan(day)[0]["platforms"]["instagram"]["status"] == "reposted"
+    rp = builder.plan(new_day)
+    assert len(rp) == 1 and rp[0]["repost"] and rp[0]["platforms"] == {"instagram": {"status": "pending"}}
+    assert (builder.batch_dir(new_day) / rp[0]["file"]).exists()
+    # the day's regular reels are still built, including the same time slot
+    make_clip("clip02", 40)                     # clip01 is resting from Monday
+    built = builder.build_day(new_day, store.settings(), now=datetime(2030, 1, 9, 8, 0, tzinfo=tz))
+    assert f["time"] in {r["local_time"] for r in built} and len(builder.plan(new_day)) == 3
+    # it goes out with the chosen song
+    fz2 = FZ()
+    runner.schedule_due(store.settings(), zclient=fz2,
+                        now_utc=datetime(2030, 1, 9, 10, 0, tzinfo=tz).astimezone(timezone.utc))
+    rep = [x for x in fz2.posts if x[1] == rp[0]["n"]]
+    assert rep and rep[0][2]["id"] == "igB"
+    # too soon is refused
+    with pytest.raises(ValueError):
+        runner.repost(store.settings(), day, 2, "instagram", day, "10:05", "random", now_utc=now)

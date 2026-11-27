@@ -57,6 +57,37 @@
   {% endif %}
 </div>
 
+<div class="card" id="failed">
+  <h2>Failed posts</h2>
+  <p class="hint">Posts Zernio couldn't publish, and reels that missed their time. The app checks Zernio every few
+    minutes; press Check now to look right away. Pick a song, a day and a time, and the reel goes out again on that
+    platform only (alongside that day's regular reels).</p>
+  {% if s.zernio_api_key %}<form class="inline" method="post" action="/zernio/check-failed"><button class="quiet">Check Zernio now</button></form>{% endif %}
+  {% if failed %}
+  <table>
+    <tr><th></th><th>Was</th><th>Hook</th><th>Problem</th><th>Repost</th></tr>
+    {% for f in failed %}
+    <tr>
+      <td><a href="/files/batches/{{ f.day }}/{{ f.file }}" target="_blank"><img class="thumb" src="/files/batches/{{ f.day }}/{{ f.thumb }}" alt=""></a></td>
+      <td>{{ names[f.platform] }}<br>{{ f.when.strftime('%a %b %-d, %-I:%M %p') }}</td>
+      <td>{{ f.hook }}</td>
+      <td><span class="bad">{{ f.status }}</span> <span class="hint">{{ f.error }}{% if f.song %} (♪ {{ f.song }}){% endif %}</span></td>
+      <td><form method="post" action="/reel/{{ f.day }}/{{ f.n }}/repost">
+        <input type="hidden" name="platform" value="{{ f.platform }}">
+        {% if f.platform in ['instagram', 'tiktok'] %}{% set key = 'ig' if f.platform == 'instagram' else 'tt' %}
+        <select name="song"><option value="random">Random song from my list</option>
+          {% for x in songs if x[key] %}<option value="{{ x[key].id }}">{{ x[key].title or x.title or x.line }}{% if x[key].artist %} — {{ x[key].artist }}{% endif %}</option>{% endfor %}
+          <option value="none">No song (video's own sound)</option></select>
+        {% else %}<input type="hidden" name="song" value="random">{% endif %}
+        <input type="date" name="new_date" value="{{ tomorrow }}">
+        <input type="time" name="new_time" value="{{ f.time }}">
+        <button class="small">Repost</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="hint">No failed posts.</p>{% endif %}
+</div>
+
 <div class="card">
   <h2>Activity</h2>
   <ul class="feed">

@@ -144,3 +144,19 @@ class Client:
     def delete_post(self, post_id):
         """Cancel a scheduled post (published posts can't be deleted)."""
         self._req("DELETE", f"/posts/{post_id}")
+
+    def failed_posts(self, pages=5):
+        """Posts that failed, fully or on some platforms (status "failed" or "partial")."""
+        out = []
+        for status in ("failed", "partial"):
+            cursor = None
+            for _ in range(pages):
+                params = {"status": status, "limit": 50}
+                if cursor:
+                    params["cursor"] = cursor
+                j = self._req("GET", "/posts", params=params)
+                out += j.get("posts") or []
+                cursor = (j.get("pagination") or {}).get("nextCursor")
+                if not cursor:
+                    break
+        return out
