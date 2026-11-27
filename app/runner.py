@@ -1,4 +1,5 @@
 """The autopilot: every few minutes, keep reels built ahead and hand due ones to Zernio or Blotato."""
+import re
 import shutil
 import threading
 import time
@@ -382,6 +383,10 @@ def sync_failed(settings, zclient=None):
             failed[(str(post.get("_id")), x.get("platform"))] = str(msg)
         if not plats and post.get("status") == "failed":
             failed[(str(post.get("_id")), None)] = str(post.get("errorMessage") or "failed in Zernio")
+    for (pid, plat), msg in failed.items():     # a refused song leaves the rotation
+        bad_song = re.search(r"audioId (\d+)", msg)
+        if bad_song:
+            songs.mark_unavailable(plat or "instagram", bad_song.group(1), msg)
     if not failed:
         return 0
     marked = 0

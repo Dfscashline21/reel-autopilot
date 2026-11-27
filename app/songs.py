@@ -159,6 +159,21 @@ def resolve(items, client, accounts):
     return items
 
 
+def mark_unavailable(platform, song_id, why=""):
+    """Take a song out of the rotation on one platform after the platform refused it."""
+    key = "ig" if platform == "instagram" else "tt"
+    items = songs()
+    hit = False
+    for x in items:
+        if x.get(key) and str(x[key].get("id")) == str(song_id):
+            x[key] = None
+            x[key + "_note"] = "Stopped being available (a post with it failed). Save and check songs to look again."
+            hit = True
+    if hit:
+        save(items)
+    return hit
+
+
 def songs():
     return store.read_json("songs.json", [])
 

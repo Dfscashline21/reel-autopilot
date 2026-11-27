@@ -647,6 +647,14 @@ def test_failed_posts_sync_and_repost_with_new_song():
     assert runner.schedule_due(store.settings(), zclient=fz, now_utc=now) == 2
     assert runner.sync_failed(store.settings(), zclient=fz) == 1
     assert runner.sync_failed(store.settings(), zclient=fz) == 0                # already marked
+    songs.save(songs.songs() + [{"line": "C", "ig": {"id": "555", "title": "C"}}])
+
+    class FZ3(FZ):
+        def failed_posts(self):
+            return [{"_id": "old", "status": "failed", "platforms": [{"platform": "instagram", "status": "failed",
+                     "errorMessage": "Instagram no longer accepts audioId 555: it is not in this account's catalog"}]}]
+    runner.sync_failed(store.settings(), zclient=FZ3())                          # even for posts already marked
+    assert [x["ig"] for x in songs.songs() if x["line"] == "C"] == [None]
     rows = runner.failed_reels(store.settings())
     assert len(rows) == 1 and rows[0]["error"] == "Audio unavailable" and rows[0]["platform"] == "instagram"
     f = rows[0]
@@ -672,3 +680,13 @@ def test_failed_posts_sync_and_repost_with_new_song():
     # too soon is refused
     with pytest.raises(ValueError):
         runner.repost(store.settings(), day, 2, "instagram", day, "10:05", "random", now_utc=now)
+
+
+def test_song_refused_by_instagram_leaves_the_rotation():
+    from app import songs
+    songs.save([{"line": "A", "ig": {"id": "111", "title": "A"}}, {"line": "B", "ig": {"id": "222", "title": "B"}}])
+    assert songs.mark_unavailable("instagram", "111")
+    assert [x["ig"] for x in songs.songs()] == [None, {"id": "222", "title": "B"}]
+    assert "Stopped being available" in songs.songs()[0]["ig_note"]
+    assert not songs.mark_unavailable("instagram", "999")
+    assert songs.pick("instagram", dict(store.settings(), song_fallback="none"))["id"] == "222"
