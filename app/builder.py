@@ -523,6 +523,11 @@ def build_day(day: date, settings=None, now=None, out_dir=None, record=True):
             hk = st["hook"]
             render(cid, start, hk["hook"], music, moff, variant, out / fname, s["reel_seconds"])
             plats = {p: {"status": "pending"} for p, a in (s.get("accounts") or {}).items() if a.get("enabled")}
+            for x in existing:              # a queued repost took this time on its platform
+                if x.get("takes_slot") and x["local_time"] == t:
+                    for p in x["platforms"]:
+                        if p in plats:
+                            plats[p] = {"status": "off", "error": "this time went to a repost"}
             if "youtube" in plats:
                 if yt_used >= yt_cap:
                     plats["youtube"] = {"status": "off", "error": "over the daily YouTube cap"}

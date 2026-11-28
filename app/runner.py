@@ -424,7 +424,7 @@ def failed_reels(settings):
     return rows
 
 
-def repost(settings, day, n, platform, new_date, new_time, song_choice="random", now_utc=None):
+def repost(settings, day, n, platform, new_date, new_time, song_choice="random", now_utc=None, takes_slot=False):
     """Copy a failed reel to another day and time, on that one platform, optionally with a
     chosen song ("random", "none" or a song from the list). Returns the new reel."""
     tz = ZoneInfo(settings["timezone"])
@@ -451,6 +451,8 @@ def repost(settings, day, n, platform, new_date, new_time, song_choice="random",
     new.update({"n": n2, "file": fname, "thumb": thumb, "local_date": new_date.isoformat(), "local_time": new_time,
                 "set": f"repost-{n2}", "repost": True, "repost_of": f"{day.isoformat()}#{n}", "skipped": False,
                 "platforms": {platform: {"status": "pending"}}})
+    if takes_slot:
+        new["takes_slot"] = True      # that day's regular reel at this time skips this platform
     if song_choice == "none":
         new["song_choice"] = "none"
     elif isinstance(song_choice, dict):
@@ -466,6 +468,35 @@ def repost(settings, day, n, platform, new_date, new_time, song_choice="random",
                         + (f" with {song_choice.get('title') or 'the chosen song'}." if isinstance(song_choice, dict)
                            else " with no song." if song_choice == "none" else " with a random song from your list."))
     return new
+
+
+def back_of_queue(settings, platform, now=None):
+    """The first posting time on `platform` after every day already built, that no other
+    queued repost has taken. Returns (date, "HH:MM")."""
+    tz = ZoneInfo(settings["timezone"])
+    today = (now or datetime.now(tz)).date()
+    last, taken = today, set()
+    for day, items in _all_reels():
+        if any(not r.get("repost") for r in items):
+            last = max(last, day)
+        for r in items:
+            if r.get("takes_slot") and platform in r["platforms"]:
+                taken.add((day, r["local_time"]))
+    times = sorted(settings.get("times") or ["15:00"])
+    d = last + timedelta(days=1)
+    for _ in range(366):
+        for t in times:
+            if (d, t) not in taken:
+                return d, t
+        d += timedelta(days=1)
+    raise ValueError("No open posting time found in the next year.")
+
+
+def queue_repost(settings, day, n, platform, now_utc=None):
+    """Repost a failed reel at the back of the queue, taking a regular posting time,
+    with a random song from the list."""
+    new_date, t = back_of_queue(settings, platform)
+    return repost(settings, day, n, platform, new_date, t, "random", now_utc=now_utc, takes_slot=True)
 
 
 def cleanup(settings, now=None):

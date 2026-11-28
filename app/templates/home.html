@@ -61,8 +61,12 @@
   <h2>Failed posts</h2>
   <p class="hint">Posts Zernio couldn't publish, and reels that missed their time. The app checks Zernio every few
     minutes; press Check now to look right away. Pick a song, a day and a time, and the reel goes out again on that
-    platform only (alongside that day's regular reels).</p>
+    platform only (alongside that day's regular reels). Or add it to the back of the queue: it takes the next open
+    posting time after everything already scheduled, with a random song from your list.</p>
   {% if s.zernio_api_key %}<form class="inline" method="post" action="/zernio/check-failed"><button class="quiet">Check Zernio now</button></form>{% endif %}
+  {% if failed %}<form class="inline" method="post" action="/failed/queue-all"
+        onsubmit="return confirm('Add all {{ failed|length }} failed posts to the back of the queue, each with a random song?');">
+    <button class="quiet">Add all to back of queue</button></form>{% endif %}
   {% if failed %}
   <table>
     <tr><th></th><th>Was</th><th>Hook</th><th>Problem</th><th>Repost</th></tr>
@@ -81,7 +85,9 @@
         {% else %}<input type="hidden" name="song" value="random">{% endif %}
         <input type="date" name="new_date" value="{{ tomorrow }}">
         <input type="time" name="new_time" value="{{ f.time }}">
-        <button class="small">Repost</button></form></td>
+        <button class="small">Repost</button></form>
+        <form method="post" action="/reel/{{ f.day }}/{{ f.n }}/queue"><input type="hidden" name="platform" value="{{ f.platform }}">
+        <button class="small quiet">Add to back of queue</button></form></td>
     </tr>
     {% endfor %}
   </table>

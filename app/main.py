@@ -204,6 +204,29 @@ def repost_reel(day: str, n: int, platform: str = Form(...), new_date: str = For
     return RedirectResponse("/#failed", status_code=303)
 
 
+@app.post("/reel/{day}/{n}/queue")
+def queue_reel(day: str, n: int, platform: str = Form(...)):
+    try:
+        runner.queue_repost(store.settings(), datetime.fromisoformat(day).date(), n, platform)
+    except (ValueError, OSError) as e:
+        store.event("error", f"Couldn't add to the queue: {e}")
+    return RedirectResponse("/#failed", status_code=303)
+
+
+@app.post("/failed/queue-all")
+def queue_all_failed():
+    s = store.settings()
+    done = 0
+    for f in runner.failed_reels(s):
+        try:
+            runner.queue_repost(s, datetime.fromisoformat(f["day"]).date(), f["n"], f["platform"])
+            done += 1
+        except (ValueError, OSError) as e:
+            store.event("error", f"Couldn't add \"{f['hook'][:40]}\" to the queue: {e}")
+    store.event("info", f"Added {done} failed post(s) to the back of the queue.")
+    return RedirectResponse("/#failed", status_code=303)
+
+
 @app.post("/reel/{day}/{n}/skip")
 def skip(day: str, n: int):
     d = datetime.fromisoformat(day).date()

@@ -690,3 +690,38 @@ def test_song_refused_by_instagram_leaves_the_rotation():
     assert "Stopped being available" in songs.songs()[0]["ig_note"]
     assert not songs.mark_unavailable("instagram", "999")
     assert songs.pick("instagram", dict(store.settings(), song_fallback="none"))["id"] == "222"
+
+
+def test_add_failed_post_to_back_of_queue():
+    make_clip("clip01", 40)
+    make_clip("clip02", 40)
+    store.write_json("hooks.json", [{"hook": "H1", "caption": "c"}, {"hook": "H2", "caption": "c"}])
+    store.save_settings(accounts={"instagram": {"id": "ig1", "enabled": True, "via": "zernio"},
+                                  "tiktok": {"id": "tt1", "enabled": True, "via": "zernio"}},
+                        zernio_api_key="zk", song_fallback="none", video_rest_days=0)
+    tz = ZoneInfo(TZ)
+    d1, d2 = date(2030, 1, 7), date(2030, 1, 8)
+    for d in (d1, d2):
+        builder.build_day(d, store.settings(), now=datetime(2030, 1, 7, 9, 0, tzinfo=tz))
+    plan = builder.plan(d1)
+    plan[0]["platforms"]["instagram"] = {"status": "failed", "error": "x", "via": "zernio", "id": "z"}
+    plan[1]["platforms"]["instagram"] = {"status": "failed", "error": "x", "via": "zernio", "id": "z2"}
+    builder.save_plan(d1, plan)
+    times = sorted(store.settings()["times"])
+    now = datetime(2030, 1, 7, 10, 0, tzinfo=tz).astimezone(timezone.utc)
+    a = runner.queue_repost(store.settings(), d1, plan[0]["n"], "instagram", now_utc=now)
+    b = runner.queue_repost(store.settings(), d1, plan[1]["n"], "instagram", now_utc=now)
+    # after the last built day, first two posting times, in order
+    assert (a["local_date"], a["local_time"]) == ("2030-01-09", times[0])
+    assert (b["local_date"], b["local_time"]) == ("2030-01-09", times[1])
+    assert a["takes_slot"] and "song_choice" not in a                          # random song
+    # when that day is built, those times skip Instagram but still post on TikTok
+    builder.build_day(date(2030, 1, 9), store.settings(), now=datetime(2030, 1, 8, 9, 0, tzinfo=tz))
+    regular = [r for r in builder.plan(date(2030, 1, 9)) if not r.get("repost")]
+    by_time = {r["local_time"]: r["platforms"] for r in regular}
+    assert by_time[times[0]]["instagram"]["status"] == "off" and by_time[times[0]]["tiktok"]["status"] == "pending"
+    assert by_time[times[1]]["instagram"]["status"] == "off"
+    assert all(by_time[t]["instagram"]["status"] == "pending" for t in times[2:])
+    # the next one goes after the newly built day
+    assert runner.back_of_queue(store.settings(), "instagram",
+                                now=datetime(2030, 1, 7, 10, 0, tzinfo=tz)) == (date(2030, 1, 10), times[0])
